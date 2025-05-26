@@ -1,36 +1,84 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RSS Feed Aggregator
+
+A Next.js application that aggregates and displays RSS feeds. Built with Next.js, Prisma, and SQLite.
+
+## Features
+
+- Add and manage multiple RSS feeds
+- Automatic feed refresh system
+- Display feed items with title, description, author, and category
+- SQLite database for persistent storage
+- Modern, responsive UI with Tailwind CSS
 
 ## Getting Started
 
-First, run the development server:
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Set up the database:
+   ```bash
+   npx prisma generate
+   npx prisma migrate dev
+   ```
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+5. Open [http://localhost:3000](http://localhost:3000) with your browser
 
+## Database Management
+
+You can use Prisma Studio to manage the database:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npx prisma studio
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Feed Refresh System
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The application includes an automatic feed refresh system that can be triggered in two ways:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Manual Refresh**: Visit `/api/refresh` in your browser or make a GET request to that endpoint
+2. **Automatic Refresh**: Set up a cron job or use a service like Uptime Robot to hit the `/api/refresh` endpoint at regular intervals
 
-## Learn More
+Recommended refresh intervals:
+- Every 15 minutes for news feeds
+- Every hour for blog feeds
+- Every 24 hours for less frequently updated feeds
 
-To learn more about Next.js, take a look at the following resources:
+## API Routes
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `POST /api/feeds` - Add a new RSS feed
+- `GET /api/feeds` - Get all feeds and their items
+- `GET /api/refresh` - Refresh all feeds
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment Variables
 
-## Deploy on Vercel
+Create a `.env` file in the root directory:
+```env
+DATABASE_URL="file:./dev.db"
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tech Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Next.js](https://nextjs.org) - React framework
+- [Prisma](https://www.prisma.io) - Database ORM
+- [SQLite](https://www.sqlite.org) - Database
+- [Tailwind CSS](https://tailwindcss.com) - Styling
+- [RSS Parser](https://www.npmjs.com/package/rss-parser) - RSS feed parsing
+
+## Deployment
+
+This application can be deployed to any platform that supports Next.js applications. Make sure to:
+
+1. Set up the environment variables
+2. Run the database migrations
+3. Configure the feed refresh system
+
+For the feed refresh system in production, you can use:
+- Cron jobs
+- Scheduled tasks
+- External monitoring services
+
+Make sure to secure the `/api/refresh` endpoint in production if needed.
