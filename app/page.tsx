@@ -286,18 +286,153 @@ export default function Home() {
             <div className="mt-6">
               {activeTab === 'prompts' && (
                 <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-gray-900">System Prompts</h2>
-                    <button
-                      onClick={() => {
-                        setEditingPrompt(null);
-                        setPromptForm({ name: '', prompt: '', temperature: 0.7 });
-                        setShowPromptModal(true);
-                      }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2 shadow-sm"
-                    >
-                      Add New Prompt
-                    </button>
+                  {showPromptModal && (
+                    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
+                      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full p-6">
+                        <h2 className="text-xl font-semibold mb-6">
+                          {editingPrompt ? 'Edit Prompt' : 'Add New Prompt'}
+                        </h2>
+                        <form onSubmit={handlePromptSubmit}>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-6">
+                              <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Name</h3>
+                                <input
+                                  type="text"
+                                  id="name"
+                                  value={promptForm.name}
+                                  onChange={(e) => setPromptForm({ ...promptForm, name: e.target.value })}
+                                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                  placeholder="Enter prompt name"
+                                  required
+                                />
+                              </div>
+
+                              <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Temperature</h3>
+                                <div className="space-y-4">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg text-gray-900">{promptForm.temperature}</span>
+                                    <div className="flex-grow h-2 bg-gray-200 rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-blue-500 rounded-full" 
+                                        style={{ width: `${promptForm.temperature * 100}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    id="temperature"
+                                    min="0"
+                                    max="1"
+                                    step="0.1"
+                                    value={promptForm.temperature}
+                                    onChange={(e) => setPromptForm({ ...promptForm, temperature: parseFloat(e.target.value) })}
+                                    className="w-full"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Prompt Text</h3>
+                              <textarea
+                                id="prompt"
+                                value={promptForm.prompt}
+                                onChange={(e) => setPromptForm({ ...promptForm, prompt: e.target.value })}
+                                rows={12}
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 font-mono text-sm"
+                                placeholder="Enter your prompt text"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end gap-3 mt-6">
+                            <button
+                              type="button"
+                              onClick={() => setShowPromptModal(false)}
+                              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors duration-200"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
+                            >
+                              {editingPrompt ? 'Save Changes' : 'Add Prompt'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                    <div className="w-full space-y-4">
+                      <h2 className="text-2xl font-bold text-gray-900">System Prompts</h2>
+                      <div className="flex flex-col sm:flex-row gap-4 w-full">
+                        <div className="flex-grow">
+                          <label htmlFor="promptSelect" className="block text-sm font-medium text-gray-700 mb-2">
+                            Select a Prompt
+                          </label>
+                          <select
+                            id="promptSelect"
+                            value={selectedPromptId}
+                            onChange={(e) => {
+                              setSelectedPromptId(e.target.value);
+                              const selectedPrompt = systemPrompts.find(p => p.id === e.target.value);
+                              if (selectedPrompt) {
+                                setPromptForm({
+                                  name: selectedPrompt.name,
+                                  prompt: selectedPrompt.prompt,
+                                  temperature: selectedPrompt.temperature
+                                });
+                              }
+                            }}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">Select a prompt...</option>
+                            {systemPrompts.map((prompt) => (
+                              <option key={prompt.id} value={prompt.id}>
+                                {prompt.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2 self-end">
+                          <button
+                            onClick={() => {
+                              setEditingPrompt(null);
+                              setPromptForm({ name: '', prompt: '', temperature: 0.7 });
+                              setSelectedPromptId('');
+                              setShowPromptModal(true);
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2 shadow-sm"
+                          >
+                            Add New
+                          </button>
+                          {selectedPromptId && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  const prompt = systemPrompts.find(p => p.id === selectedPromptId);
+                                  if (prompt) handleEditPrompt(prompt);
+                                }}
+                                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors duration-200 shadow-sm"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeletePrompt(selectedPromptId)}
+                                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors duration-200 shadow-sm"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {error && (
@@ -306,40 +441,42 @@ export default function Home() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 gap-6">
-                    {systemPrompts.map((prompt) => (
-                      <div
-                        key={prompt.id}
-                        className="bg-white shadow-sm rounded-lg border border-gray-200 p-6"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <h3 className="text-lg font-medium text-gray-900">
-                            {prompt.name}
-                          </h3>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleEditPrompt(prompt)}
-                              className="text-blue-600 hover:text-blue-800"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeletePrompt(prompt.id)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              Delete
-                            </button>
+                  {selectedPromptId && (
+                    <div className="mt-6 space-y-6">
+                      {systemPrompts
+                        .filter(prompt => prompt.id === selectedPromptId)
+                        .map(prompt => (
+                          <div key={prompt.id} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-6">
+                              <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Name</h3>
+                                <p className="text-lg text-gray-900">{prompt.name}</p>
+                              </div>
+
+                              <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Temperature</h3>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg text-gray-900">{prompt.temperature}</span>
+                                  <div className="flex-grow h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div 
+                                      className="h-full bg-blue-500 rounded-full" 
+                                      style={{ width: `${prompt.temperature * 100}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Prompt Text</h3>
+                              <div className="prose prose-sm max-w-none bg-gray-50 p-4 rounded-md h-[calc(100%-3rem)] overflow-auto">
+                                <pre className="whitespace-pre-wrap">{prompt.prompt}</pre>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="prose prose-sm max-w-none">
-                          <pre className="whitespace-pre-wrap">{prompt.prompt}</pre>
-                        </div>
-                        <div className="mt-4 text-sm text-gray-500">
-                          Temperature: {prompt.temperature}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
 
