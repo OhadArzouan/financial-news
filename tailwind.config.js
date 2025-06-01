@@ -6,7 +6,11 @@ module.exports = {
     './app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        serif: ['var(--font-playfair)'],
+      },
+    },
   },
-  plugins: [],
+  plugins: [require('@tailwindcss/typography')],
 }

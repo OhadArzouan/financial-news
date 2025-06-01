@@ -52,10 +52,10 @@ export async function POST(request: Request) {
           prisma.feedItem.create({
             data: {
               title: item.title || 'Untitled',
-              url: item.link || '',
+              link: item.link || '',
               description: item.contentSnippet || item.description || null,
-              content: item.content || null,
-              processedContent: processContent(item.content || null),
+              content: item['content:encoded'] || item.content || item.description || null,
+              processedContent: processContent(item['content:encoded'] || item.content || item.description || null),
               publishedAt: new Date(item.pubDate || item.isoDate || new Date()),
               author: item.creator || item.author || null,
               category: Array.isArray(item.categories) ? item.categories[0] : (item.category || null),
@@ -95,7 +95,7 @@ export async function GET() {
           orderBy: {
             publishedAt: 'desc'
           },
-          take: 10
+          take: 50
         }
       }
     });
