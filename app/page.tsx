@@ -384,7 +384,7 @@ export default function Home() {
                               </td>
                               <td className="px-3 py-2">
                                 <div 
-                                  className="text-sm text-gray-600 overflow-y-auto border border-gray-200 p-1 rounded bg-gray-50" 
+                                  className="text-sm text-gray-600 overflow-y-auto p-1 rounded bg-gray-50" 
                                   style={{ height: '200px', overflowY: 'auto', display: 'block' }}
                                 >
                                   {item.processedContent || '-'}
