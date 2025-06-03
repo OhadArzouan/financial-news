@@ -13,7 +13,7 @@ interface FeedItem {
   processedContent?: string;
   author?: string;
   category?: string;
-  feedId: string;
+  feedId: string; // This is the ID of the feed this item belongs to
 }
 
 interface Feed {
@@ -67,6 +67,7 @@ export default function Home() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [sortField, setSortField] = useState<SortField>('publishedAt');
   const [feedFilter, setFeedFilter] = useState<string>('all');
+  const [filteredItems, setFilteredItems] = useState<(FeedItem & { feedTitle: string })[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -81,6 +82,29 @@ export default function Home() {
       fetchSystemPrompts();
     }
   }, [isMounted]);
+  
+  // Apply filtering whenever feeds or filter changes
+  useEffect(() => {
+    if (feeds.length > 0) {
+      // Create the flattened list of items with feed info
+      const allItems = feeds.flatMap(feed => 
+        feed.items.map(item => ({
+          ...item,
+          feedTitle: feed.title,
+          // Make sure we have a consistent string for comparison
+          feedId: String(feed.id)
+        }))
+      );
+      
+      // Apply filtering based on selected feed
+      if (feedFilter === 'all') {
+        setFilteredItems(allItems);
+      } else {
+        const filtered = allItems.filter(item => item.feedId === feedFilter);
+        setFilteredItems(filtered);
+      }
+    }
+  }, [feeds, feedFilter]);
 
   const fetchFeeds = async () => {
     setError(null);
@@ -306,12 +330,15 @@ export default function Home() {
                           <select
                             id="feedFilter"
                             value={feedFilter}
-                            onChange={(e) => setFeedFilter(e.target.value)}
+                            onChange={(e) => {
+                              console.log('Selected filter:', e.target.value);
+                              setFeedFilter(e.target.value);
+                            }}
                             className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
                           >
                             <option value="all">All Feeds</option>
                             {feeds.map((feed) => (
-                              <option key={feed.id} value={feed.id}>{feed.title}</option>
+                                <option key={feed.id} value={feed.id}>{feed.title}</option>
                             ))}
                           </select>
                         </div>
@@ -353,9 +380,7 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {feeds
-                          .filter(feed => feedFilter === 'all' || feed.id === feedFilter)
-                          .flatMap(feed => feed.items.map(item => ({ ...item, feedTitle: feed.title, feedId: feed.id })))
+                        {filteredItems
                           .sort((a, b) => {
                             if (sortField === 'publishedAt') {
                               return sortDirection === 'asc' 
@@ -397,7 +422,8 @@ export default function Home() {
                                 {item.category || '-'}
                               </td>
                             </tr>
-                          ))}
+                          ))
+                        }
                       </tbody>
                     </table>
                   </div>
