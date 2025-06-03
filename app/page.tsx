@@ -471,47 +471,90 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6">
-                  {systemPrompts.map((prompt) => (
-                    <div key={prompt.id} className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900">{prompt.name}</h3>
-                          <p className="mt-1 text-sm text-gray-500">
-                            Temperature: {prompt.temperature}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => {
-                              setPromptForm({
-                                name: prompt.name,
-                                prompt: prompt.prompt,
-                                temperature: prompt.temperature,
-                              });
-                              setEditingPrompt(prompt);
-                              setShowPromptModal(true);
-                            }}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeletePrompt(prompt.id)}
-                            className="inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mt-4 bg-gray-50 rounded-md p-4">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700">{prompt.prompt}</pre>
-                      </div>
-                      <div className="mt-2 text-xs text-gray-400">
-                        Created: {new Date(prompt.created_at).toLocaleString()}
+                <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                  <div className="mb-4">
+                    <label htmlFor="promptSelect" className="block text-sm font-medium text-gray-700 mb-2">
+                      Select a System Prompt
+                    </label>
+                    <select
+                      id="promptSelect"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
+                      onChange={(e) => {
+                        const selectedPrompt = systemPrompts.find(p => p.id === e.target.value);
+                        if (selectedPrompt) {
+                          setPromptForm({
+                            name: selectedPrompt.name,
+                            prompt: selectedPrompt.prompt,
+                            temperature: selectedPrompt.temperature
+                          });
+                        }
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="" disabled>Choose a prompt</option>
+                      {systemPrompts.map((prompt) => (
+                        <option key={prompt.id} value={prompt.id}>
+                          {prompt.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Prompt Content
+                      </label>
+                      <div className="bg-gray-50 rounded-md p-4 h-64 overflow-y-auto">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700">{promptForm.prompt}</pre>
                       </div>
                     </div>
-                  ))}
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2 text-center">
+                        Temperature: {promptForm.temperature}
+                      </label>
+                      <div className="bg-gray-50 rounded-md p-4 flex justify-center">
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.1"
+                          value={promptForm.temperature}
+                          readOnly
+                          className="w-1/2"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex mt-6 space-x-2">
+                    <button
+                      onClick={() => {
+                        const selectedPrompt = systemPrompts.find(p => p.name === promptForm.name);
+                        if (selectedPrompt) {
+                          setEditingPrompt(selectedPrompt);
+                          setShowPromptModal(true);
+                        }
+                      }}
+                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                      disabled={!promptForm.name}
+                    >
+                      Edit Selected Prompt
+                    </button>
+                    <button
+                      onClick={() => {
+                        const selectedPrompt = systemPrompts.find(p => p.name === promptForm.name);
+                        if (selectedPrompt) {
+                          handleDeletePrompt(selectedPrompt.id);
+                        }
+                      }}
+                      className="inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      disabled={!promptForm.name}
+                    >
+                      Delete Selected Prompt
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
