@@ -295,12 +295,30 @@ export default function Home() {
                   </div>
                 </form>
 
-                <div className="mt-8 bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                <div className="mt-6">
+                  {feeds.map((feed) => (
+                    <div key={feed.id} className="mb-8 bg-white shadow-sm rounded-lg border border-gray-200">
+                      <div className="p-6">
+                        <h3 className="text-lg font-medium text-gray-900">{feed.title}</h3>
+                        <p className="mt-1 text-sm text-gray-500">{feed.url}</p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          Last fetched: {new Date(feed.last_fetched).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="border-t border-gray-200">
+                        <div className="p-6">
+                          <h4 className="text-sm font-medium text-gray-900 mb-4">Recent Items</h4>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
                   {/* Unified Feed Items Table */}
-                  <div className="flex flex-col md:flex-row justify-between mb-4 gap-4">
-                    <h3 className="text-lg font-medium text-gray-900">All Feed Items</h3>
-                    
-                    <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="mt-8 bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                    <div className="flex flex-col md:flex-row justify-between mb-4 gap-4">
+                      <h3 className="text-lg font-medium text-gray-900">All Feed Items</h3>
+                      
+                      <div className="flex flex-col sm:flex-row gap-3">
                         <div>
                           <label htmlFor="feedFilter" className="block text-sm font-medium text-gray-700 mb-1">Filter by Feed</label>
                           <select
@@ -341,65 +359,65 @@ export default function Home() {
                       </div>
                     </div>
                     
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Feed</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/6">Title</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/6">Content</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Published</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {feeds
-                          .filter(feed => feedFilter === 'all' || feed.id === feedFilter)
-                          .flatMap(feed => feed.items.map(item => ({ ...item, feedTitle: feed.title, feedId: feed.id })))
-                          .sort((a, b) => {
-                            if (sortField === 'publishedAt') {
-                              return sortDirection === 'asc' 
-                                ? new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime()
-                                : new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-                            } else { // feedTitle
-                              return sortDirection === 'asc'
-                                ? a.feedTitle.localeCompare(b.feedTitle)
-                                : b.feedTitle.localeCompare(a.feedTitle);
-                            }
-                          })
-                          .map((item) => (
-                            <tr key={item.id} className="hover:bg-gray-50">
-                              <td className="px-3 py-2 text-sm text-gray-500">
-                                {item.feedTitle}
-                              </td>
-                              <td className="px-3 py-2">
-                                <a
-                                  href={item.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800 font-medium"
-                                >
-                                  {item.title}
-                                </a>
-                              </td>
-                              <td className="px-3 py-2">
-                                <div 
-                                  className="text-sm text-gray-600 overflow-y-auto border border-gray-200 p-1 rounded bg-gray-50" 
-                                  style={{ height: '200px', overflowY: 'auto', display: 'block' }}
-                                >
-                                  {item.processedContent || '-'}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(item.publishedAt).toLocaleString()}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-500">
-                                {item.category || '-'}
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feed</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Published</th>
+                            <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {feeds
+                            .filter(feed => feedFilter === 'all' || feed.id === feedFilter)
+                            .flatMap(feed => feed.items.map(item => ({ ...item, feedTitle: feed.title, feedId: feed.id })))
+                            .sort((a, b) => {
+                              if (sortField === 'publishedAt') {
+                                return sortDirection === 'asc' 
+                                  ? new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime()
+                                  : new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+                              } else { // feedTitle
+                                return sortDirection === 'asc'
+                                  ? a.feedTitle.localeCompare(b.feedTitle)
+                                  : b.feedTitle.localeCompare(a.feedTitle);
+                              }
+                            })
+                            .map((item) => (
+                              <tr key={item.id} className="hover:bg-gray-50">
+                                <td className="px-3 py-3 text-sm text-gray-500">
+                                  {item.feedTitle}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <a
+                                    href={item.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 font-medium"
+                                  >
+                                    {item.title}
+                                  </a>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="text-sm text-gray-600 line-clamp-2">{item.description || '-'}</p>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="text-sm text-gray-600 line-clamp-2">{item.processedContent || '-'}</p>
+                                </td>
+                                <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500">
+                                  {new Date(item.publishedAt).toLocaleString()}
+                                </td>
+                                <td className="px-3 py-3 text-sm text-gray-500">
+                                  {item.category || '-'}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>
