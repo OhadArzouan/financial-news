@@ -2,18 +2,33 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 export async function GET() {
+  console.log('GET /api/summaries - Starting request');
   try {
+    // Try a simpler query first to isolate the issue
+    console.log('Executing Prisma query...');
     const summaries = await prisma.summary.findMany({
       orderBy: {
         createdAt: 'desc'
       }
     });
-
-    return NextResponse.json({ summaries });
+    
+    console.log(`Successfully fetched ${summaries.length} summaries`);
+    
+    // Filter deleted summaries in memory instead of in the query
+    const visibleSummaries = summaries.filter(summary => !summary.isDeleted);
+    console.log(`After filtering: ${visibleSummaries.length} visible summaries`);
+    
+    // Return summaries directly as the API response
+    return NextResponse.json(visibleSummaries);
   } catch (error) {
     console.error('Error fetching summaries:', error);
+    // Return more details about the error
     return NextResponse.json(
-      { error: 'Failed to fetch summaries' },
+      { 
+        error: 'Failed to fetch summaries', 
+        details: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     );
   }

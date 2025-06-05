@@ -36,6 +36,7 @@ interface Summary {
   id: string;
   startDate: string;
   endDate: string;
+  isDeleted?: boolean;
   content: string;
   createdAt: string;
   systemPromptId: string;
@@ -76,6 +77,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [isDeletingSummary, setIsDeletingSummary] = useState<boolean>(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -133,13 +135,45 @@ export default function Home() {
     setError(null);
     setLoading(true);
     try {
-      const response = await fetch('/api/summaries');
-      if (!response.ok) throw new Error('Failed to fetch summaries');
-      const data = await response.json();
-      setSummaries(data.summaries);
+      // Add a timestamp to bust cache
+      const timestamp = new Date().getTime();
+      const response = await fetch(`/api/summaries?t=${timestamp}`);
+      
+      // Try to get response text first for debugging
+      const responseText = await response.text();
+      console.log('Raw API response:', responseText);
+      
+      // Parse the JSON manually to avoid JSON parsing errors
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (jsonError) {
+        console.error('Failed to parse JSON:', jsonError);
+        setError('Invalid JSON response from API');
+        return;
+      }
+      
+      // Check response status
+      if (!response.ok) {
+        console.error('API error status:', response.status);
+        setError(`API error: ${response.status}`);
+        return;
+      }
+      
+      // Handle the response data
+      if (Array.isArray(data)) {
+        // Direct array of summaries
+        setSummaries(data);
+      } else if (data && Array.isArray(data.summaries)) {
+        // Wrapped in summaries object
+        setSummaries(data.summaries);
+      } else {
+        console.error('Unexpected response format:', data);
+        setError('Invalid data format from API');
+      }
     } catch (err) {
       console.error('Error fetching summaries:', err);
-      setError('Failed to fetch summaries');
+      setError(err instanceof Error ? err.message : 'Network or server error');
     } finally {
       setLoading(false);
     }
@@ -379,6 +413,28 @@ export default function Home() {
     }
   };
   
+  const handleDeleteSummary = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this summary?')) return;
+    
+    setIsDeletingSummary(true);
+    try {
+      const response = await fetch(`/api/summaries/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete summary');
+      }
+      
+      // Refresh the summaries list
+      await fetchSummaries();
+    } catch (error) {
+      console.error('Error deleting summary:', error);
+    } finally {
+      setIsDeletingSummary(false);
+    }
+  };
+
   const handleDeletePrompt = async (id: string) => {
     if (!confirm('Are you sure you want to delete this prompt?')) return;
 
@@ -684,28 +740,40 @@ export default function Home() {
                             <h4 className="text-lg font-medium text-gray-900">
                               {new Date(summary.startDate).toLocaleDateString()} to {new Date(summary.endDate).toLocaleDateString()}
                             </h4>
-                            <div className="flex items-center text-sm text-gray-500 mt-1">
-                              <span className="mr-2">Created: {new Date(summary.createdAt).toLocaleString()}</span>
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {systemPrompts.find(p => p.id === summary.systemPromptId)?.name || 'Unknown prompt'}
-                              </span>
+                            <div className="flex flex-col text-sm text-gray-500 mt-1">
+                              <div>Created: {new Date(summary.createdAt).toLocaleString()}</div>
+                              <div className="mt-1">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {systemPrompts.find(p => p.id === summary.systemPromptId)?.name || 'Unknown prompt'}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleRegenerateSummary(summary)}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                            disabled={isGenerating}
-                          >
-                            {regeneratingId === summary.id ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Working...
-                              </>
-                            ) : 'Regenerate'}
-                          </button>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleRegenerateSummary(summary)}
+                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                              disabled={isGenerating}
+                            >
+                              {regeneratingId === summary.id ? (
+                                <>
+                                  <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Working...
+                                </>
+                              ) : 'Regenerate'}
+                            </button>
+                            
+                            <button
+                              onClick={() => handleDeleteSummary(summary.id)}
+                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-red-600 bg-white hover:bg-gray-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                              disabled={isGenerating}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                         <div className="prose prose-sm max-w-none bg-gray-50 rounded-md p-4 whitespace-pre-wrap">
                           {summary.content}

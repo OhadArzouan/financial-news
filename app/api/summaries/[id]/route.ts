@@ -33,6 +33,9 @@ export async function PUT(
     const updatedSummary = await prisma.summary.update({
       where: { id },
       data: updateData,
+      include: {
+        systemPrompt: true
+      }
     });
 
     return NextResponse.json({ summary: updatedSummary });
@@ -52,11 +55,13 @@ export async function DELETE(
   try {
     const { id } = params;
 
-    await prisma.summary.delete({
+    // Soft delete by updating isDeleted field to true
+    await prisma.summary.update({
       where: { id },
+      data: { isDeleted: true },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ message: 'Summary soft-deleted' });
   } catch (error) {
     console.error('Error deleting summary:', error);
     return NextResponse.json(

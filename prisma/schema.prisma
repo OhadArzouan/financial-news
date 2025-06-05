@@ -60,6 +60,7 @@ model Summary {
   createdAt      DateTime     @default(now())
   systemPrompt   SystemPrompt @relation(fields: [systemPromptId], references: [id])
   systemPromptId String
+  isDeleted      Boolean      @default(false)
 
   @@index([systemPromptId])
 }
