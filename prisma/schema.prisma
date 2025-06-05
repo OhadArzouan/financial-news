@@ -24,16 +24,43 @@ model Feed {
 }
 
 model FeedItem {
-  id             Int      @id @default(autoincrement())
-  title          String
-  url            String
-  description    String?
-  content        String?
-  processedContent String? @default(dbgenerated("NULL"))
-  publishedAt    DateTime
-  createdAt      DateTime @default(now())
-  author         String?
-  category       String?
-  feed           Feed     @relation(fields: [feedId], references: [id], onDelete: Cascade)
-  feedId         Int
+  id              Int      @id @default(autoincrement())
+  title           String
+  link            String
+  description     String?
+  content         String?
+  processedContent String?
+  publishedAt     DateTime
+  feed            Feed     @relation(fields: [feedId], references: [id], onDelete: Cascade)
+  feedId          Int
+  author          String?
+  category        String?
+
+  @@unique([feedId, link])
+  @@index([feedId])
+
+  createdAt       DateTime @default(now())
+}
+
+model SystemPrompt {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  prompt      String
+  temperature Float     @default(0.7)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  summaries   Summary[]
+}
+
+model Summary {
+  id             String       @id @default(cuid())
+  content        String
+  startDate      DateTime
+  endDate        DateTime
+  createdAt      DateTime     @default(now())
+  systemPrompt   SystemPrompt @relation(fields: [systemPromptId], references: [id])
+  systemPromptId String
+  isDeleted      Boolean      @default(false)
+
+  @@index([systemPromptId])
 }
