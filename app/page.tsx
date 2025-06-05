@@ -34,9 +34,11 @@ interface SystemPrompt {
 
 interface Summary {
   id: string;
-  week: string;
+  startDate: string;
+  endDate: string;
   content: string;
-  created_at: string;
+  createdAt: string;
+  systemPromptId: string;
 }
 
 interface PromptForm {
@@ -69,6 +71,11 @@ export default function Home() {
   const [feedFilter, setFeedFilter] = useState<string>('all');
   const [filteredItems, setFilteredItems] = useState<(FeedItem & { feedTitle: string })[]>([]);
   const [isMounted, setIsMounted] = useState(false);
+  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
+  const [dateRange, setDateRange] = useState<{startDate: string, endDate: string}>({startDate: '', endDate: ''});
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -224,6 +231,154 @@ export default function Home() {
     }
   };
 
+  const handleGenerateSummary = async () => {
+    if (!selectedPromptId || !dateRange.startDate || !dateRange.endDate) return;
+    
+    setIsGenerating(true);
+    setRegeneratingId(null); // Ensure regeneratingId is cleared
+    setSummaryError(null);
+    
+    try {
+      // First check if a summary for this prompt and date range already exists
+      const existingSummaries = summaries.filter(summary => {
+        const summaryStartDate = new Date(summary.startDate).toISOString().split('T')[0];
+        const summaryEndDate = new Date(summary.endDate).toISOString().split('T')[0];
+        return (
+          summaryStartDate === dateRange.startDate && 
+          summaryEndDate === dateRange.endDate && 
+          summary.systemPromptId === selectedPromptId
+        );
+      });
+      
+      if (existingSummaries.length > 0) {
+        setSummaryError('A summary already exists for this date range and prompt. Please use the regenerate option instead.');
+        setIsGenerating(false);
+        return;
+      }
+      
+      // Call the generate-summary API
+      const response = await fetch('/api/generate-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          systemPromptId: selectedPromptId
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+      
+      const data = await response.json();
+      
+      // Create a new summary in the database
+      const requestBody = {
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        content: data.content,
+        systemPromptId: selectedPromptId,
+        overwrite: true // Always overwrite if a duplicate exists
+      };
+      
+      console.log('Saving summary with data:', requestBody);
+      
+      const createResponse = await fetch('/api/summaries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      
+      // Read the response body only once
+      const responseData = await createResponse.json().catch(() => ({}));
+      
+      if (!createResponse.ok) {
+        console.error('Error response from summaries API:', responseData, 'Status:', createResponse.status);
+        throw new Error(`Failed to save summary: ${createResponse.status} ${responseData.error || ''}`);
+      }
+      
+      // Log any messages from the API
+      if (responseData?.message) {
+        console.log(responseData.message);
+      }
+      
+      // Refresh the summaries list
+      await fetchSummaries();
+      
+      // Reset form
+      setDateRange({startDate: '', endDate: ''});
+      
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      setSummaryError(error instanceof Error ? error.message : 'An unknown error occurred');
+    } finally {
+      setIsGenerating(false);
+      setRegeneratingId(null);
+    }
+  };
+  
+  const handleRegenerateSummary = async (summary: Summary) => {
+    if (isGenerating) return;
+    
+    setIsGenerating(true);
+    setRegeneratingId(summary.id);
+    setSummaryError(null);
+    
+    try {
+      // Use the existing summary's date range and prompt ID
+      const startDate = new Date(summary.startDate);
+      const endDate = new Date(summary.endDate);
+      const promptId = summary.systemPromptId;
+      
+      // Call the generate-summary API
+      const response = await fetch('/api/generate-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: startDate.toISOString().split('T')[0],
+          endDate: endDate.toISOString().split('T')[0],
+          systemPromptId: promptId
+        }),
+      });
+      
+      // Read response data
+      const responseData = await response.json().catch(() => ({}));
+      
+      if (!response.ok) {
+        console.error('Error response from generate-summary:', responseData, 'Status:', response.status);
+        throw new Error(`Failed to regenerate summary: ${response.status} ${responseData.error || ''}`);
+      }
+      
+      // Update the existing summary
+      const updateResponse = await fetch(`/api/summaries/${summary.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: responseData.content
+        }),
+      });
+      
+      // Parse the response
+      const updateData = await updateResponse.json().catch(() => ({}));
+      
+      if (!updateResponse.ok) {
+        console.error('Error updating summary:', updateData, 'Status:', updateResponse.status);
+        throw new Error(`Failed to update summary: ${updateResponse.status} ${updateData.error || ''}`);
+      }
+      
+      // Refresh the summaries list
+      await fetchSummaries();
+      
+    } catch (error: any) {
+      console.error('Error regenerating summary:', error);
+      setSummaryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsGenerating(false);
+      setRegeneratingId(null);
+    }
+  };
+  
   const handleDeletePrompt = async (id: string) => {
     if (!confirm('Are you sure you want to delete this prompt?')) return;
 
@@ -437,20 +592,127 @@ export default function Home() {
                   <h2 className="text-xl font-semibold">Weekly Summaries</h2>
                 </div>
 
-                <div className="space-y-6">
-                  {summaries.map((summary) => (
-                    <div key={summary.id} className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                      <div className="prose prose-sm max-w-none">
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">
-                          Week of {new Date(summary.week).toLocaleDateString()}
-                        </h3>
-                        <div className="whitespace-pre-wrap">{summary.content}</div>
-                        <div className="text-sm text-gray-500 mt-4">
-                          Created: {new Date(summary.created_at).toLocaleString()}
-                        </div>
+                {/* Summary Generation Form */}
+                <div className="mb-8 bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Generate New Summary</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label htmlFor="summaryPromptSelect" className="block text-sm font-medium text-gray-700 mb-2">
+                        Select System Prompt
+                      </label>
+                      <select
+                        id="summaryPromptSelect"
+                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
+                        onChange={(e) => setSelectedPromptId(e.target.value)}
+                        value={selectedPromptId}
+                      >
+                        <option value="" disabled>Choose a prompt</option>
+                        {systemPrompts.map((prompt) => (
+                          <option key={prompt.id} value={prompt.id}>
+                            {prompt.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex space-x-4">
+                      <div className="flex-1">
+                        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
+                          Start Date
+                        </label>
+                        <input
+                          type="date"
+                          id="startDate"
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          value={dateRange.startDate}
+                          onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-2">
+                          End Date
+                        </label>
+                        <input
+                          type="date"
+                          id="endDate"
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          value={dateRange.endDate}
+                          onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
+                        />
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="flex justify-end mt-4">
+                    <button
+                      onClick={handleGenerateSummary}
+                      disabled={!selectedPromptId || !dateRange.startDate || !dateRange.endDate || isGenerating}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating...
+                        </>
+                      ) : 'Generate Summary'}
+                    </button>
+                  </div>
+                  
+                  {summaryError && (
+                    <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md border border-red-200">
+                      {summaryError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Existing Summaries */}
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Existing Summaries</h3>
+                <div className="space-y-6">
+                  {summaries.length === 0 ? (
+                    <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 text-center text-gray-500">
+                      No summaries available. Generate your first summary above.
+                    </div>
+                  ) : (
+                    summaries.map((summary) => (
+                      <div key={summary.id} className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h4 className="text-lg font-medium text-gray-900">
+                              {new Date(summary.startDate).toLocaleDateString()} to {new Date(summary.endDate).toLocaleDateString()}
+                            </h4>
+                            <div className="flex items-center text-sm text-gray-500 mt-1">
+                              <span className="mr-2">Created: {new Date(summary.createdAt).toLocaleString()}</span>
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {systemPrompts.find(p => p.id === summary.systemPromptId)?.name || 'Unknown prompt'}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRegenerateSummary(summary)}
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            disabled={isGenerating}
+                          >
+                            {regeneratingId === summary.id ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Working...
+                              </>
+                            ) : 'Regenerate'}
+                          </button>
+                        </div>
+                        <div className="prose prose-sm max-w-none bg-gray-50 rounded-md p-4 whitespace-pre-wrap">
+                          {summary.content}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

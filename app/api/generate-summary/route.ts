@@ -3,7 +3,10 @@ import { generateWeeklySummary } from '@/lib/openai-utils';
 
 export async function POST(request: Request) {
   try {
-    const { startDate, endDate, systemPromptId } = await request.json();
+    const body = await request.json();
+    console.log('Generate summary request:', body);
+    
+    const { startDate, endDate, systemPromptId } = body;
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -18,6 +21,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ content: summaryContent });
   } catch (error: any) {
     console.error('Error generating summary:', error);
+    
+    // More detailed error logging
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+    
     return NextResponse.json(
       { error: error.message || 'Failed to generate summary' },
       { status: 500 }
