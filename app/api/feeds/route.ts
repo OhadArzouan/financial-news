@@ -92,6 +92,21 @@ export async function GET() {
     const feeds = await prisma.feed.findMany({
       include: {
         items: {
+          select: {
+            id: true,
+            title: true,
+            link: true,
+            description: true,
+            content: true,
+            processedContent: true,
+            extendedContent: true, // Include the extended content
+            publishedAt: true,
+            author: true,
+            category: true,
+            feedId: true,
+            createdAt: true,
+            pdfs: true,           // Include the PDFs relation
+          },
           orderBy: {
             publishedAt: 'desc'
           },

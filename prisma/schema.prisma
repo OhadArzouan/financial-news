@@ -30,16 +30,32 @@ model FeedItem {
   description     String?
   content         String?
   processedContent String?
+  extendedContent String?   // Content fetched from the linked URL
+  // PDF URLs moved to a separate table
   publishedAt     DateTime
   feed            Feed     @relation(fields: [feedId], references: [id], onDelete: Cascade)
   feedId          Int
   author          String?
   category        String?
+  
+  // Relation to PDFs
+  pdfs            FeedItemPdf[]
 
   @@unique([feedId, link])
   @@index([feedId])
 
   createdAt       DateTime @default(now())
+}
+
+model FeedItemPdf {
+  id          Int      @id @default(autoincrement())
+  url         String   // URL to the PDF file
+  content     String?  // Extracted text content from the PDF
+  feedItem    FeedItem @relation(fields: [feedItemId], references: [id], onDelete: Cascade)
+  feedItemId  Int
+  
+  @@index([feedItemId])
+  createdAt   DateTime @default(now())
 }
 
 model SystemPrompt {

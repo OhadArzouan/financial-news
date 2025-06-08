@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/prisma';
 
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: Request) {
   try {
-    const feedId = parseInt(params.id);
+    // Extract the id from the URL path
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split('/');
+    const idStr = pathParts[pathParts.length - 1]; // Get the ID from the path
+    const feedId = parseInt(idStr);
     
     if (isNaN(feedId)) {
       return NextResponse.json(

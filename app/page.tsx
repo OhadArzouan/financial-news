@@ -1,8 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { PdfContent } from '../components/PdfContent';
+import { PdfStats } from '../components/PdfStats';
 
 type TabType = 'feeds' | 'summaries' | 'prompts';
+
+interface FeedItemPdf {
+  id: string;
+  url: string;
+  content?: string;
+  feedItemId: string;
+  createdAt: string;
+}
 
 interface FeedItem {
   id: string;
@@ -11,6 +21,8 @@ interface FeedItem {
   description: string;
   publishedAt: string;
   processedContent?: string;
+  extendedContent?: string; // Content fetched from the linked URL
+  pdfs?: FeedItemPdf[];     // Array of PDFs attached to this feed item
   author?: string;
   category?: string;
   feedId: string; // This is the ID of the feed this item belongs to
@@ -60,6 +72,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshingFeedIds, setRefreshingFeedIds] = useState<Set<string>>(new Set());
+  const [extractingPdfFeedIds, setExtractingPdfFeedIds] = useState<Set<string>>(new Set());
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
   const [promptForm, setPromptForm] = useState<PromptForm>({
@@ -220,12 +234,9 @@ export default function Home() {
     setIsRefreshing(true);
     setError(null);
     try {
-      const response = await fetch('/api/refresh', { 
+      const response = await fetch('/api/feeds/refresh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
       });
-      
       if (!response.ok) {
         throw new Error('Failed to refresh feeds');
       }
@@ -235,6 +246,81 @@ export default function Home() {
       setError('Failed to refresh feeds');
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  // Function to refresh a single feed with enhanced content and PDF extraction
+  const handleRefreshSingleFeed = async (feedId: string) => {
+    // Add feedId to the set of refreshing feeds
+    setRefreshingFeedIds(prev => new Set([...prev, feedId]));
+    setError(null);
+    
+    try {
+      console.log(`Refreshing feed with ID: ${feedId}`);
+      const response = await fetch(`/api/feeds/${feedId}/refresh`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Failed to refresh feed: ${errorData.error || response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('Feed refresh result:', result);
+      
+      // Fetch updated feeds
+      await fetchFeeds();
+      
+    } catch (err) {
+      console.error(`Error refreshing feed ${feedId}:`, err);
+      setError(`Failed to refresh feed: ${(err as Error).message}`);
+    } finally {
+      // Remove feedId from the set of refreshing feeds
+      setRefreshingFeedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(feedId);
+        return newSet;
+      });
+    }
+  };
+
+  // Function to extract PDFs from existing feed items
+  const handleExtractPdfs = async (feedId: string) => {
+    // Add feedId to the set of extracting PDF feeds
+    setExtractingPdfFeedIds(prev => new Set([...prev, feedId]));
+    setError(null);
+    
+    try {
+      console.log(`Extracting PDFs from feed with ID: ${feedId}`);
+      const response = await fetch(`/api/feeds/${feedId}/extract-pdfs`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Failed to extract PDFs: ${errorData.error || response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('PDF extraction result:', result);
+      
+      // Show a success message
+      alert(`PDF extraction completed: ${result.stats.pdfsExtracted} PDFs extracted`);
+      
+      // Fetch updated feeds
+      await fetchFeeds();
+      
+    } catch (err) {
+      console.error(`Error extracting PDFs from feed ${feedId}:`, err);
+      setError(`Failed to extract PDFs: ${(err as Error).message}`);
+    } finally {
+      // Remove feedId from the set of extracting PDF feeds
+      setExtractingPdfFeedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(feedId);
+        return newSet;
+      });
     }
   };
 
@@ -459,8 +545,13 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">RSS Feed Aggregator</h1>
+        </div>
+        
+        {/* PDF Statistics Dashboard */}
+        <div className="mb-8">
+          <PdfStats />
         </div>
 
         {error && (
@@ -505,9 +596,45 @@ export default function Home() {
                       disabled={isRefreshing}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                     >
-                      {isRefreshing ? 'Refreshing...' : 'Refresh Feeds'}
+                      {isRefreshing ? 'Refreshing...' : 'Refresh All Feeds'}
                     </button>
                   </div>
+                </div>
+                
+                {/* List of feeds with individual refresh buttons */}
+                <div className="mb-6 bg-white shadow overflow-hidden sm:rounded-md">
+                  <ul className="divide-y divide-gray-200">
+                    {feeds.map((feed) => (
+                      <li key={feed.id} className="px-4 py-4 sm:px-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-lg font-medium text-gray-800">{feed.title}</h3>
+                            <p className="text-sm text-gray-500 truncate">{feed.url}</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Last updated: {new Date(feed.last_fetched).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleRefreshSingleFeed(feed.id)}
+                              disabled={refreshingFeedIds.has(feed.id)}
+                              className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {refreshingFeedIds.has(feed.id) ? 'Refreshing...' : 'Refresh'}
+                            </button>
+                            <button
+                              onClick={() => handleExtractPdfs(feed.id)}
+                              disabled={extractingPdfFeedIds.has(feed.id)}
+                              className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Extract PDF content from existing feed items"
+                            >
+                              {extractingPdfFeedIds.has(feed.id) ? 'Extracting...' : 'Extract PDFs'}
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
                 <form onSubmit={handleAddFeed} className="mb-6">
@@ -623,7 +750,27 @@ export default function Home() {
                                   className="text-sm text-gray-600 overflow-y-auto p-1 rounded bg-gray-50" 
                                   style={{ height: '200px', overflowY: 'auto', display: 'block' }}
                                 >
-                                  {item.processedContent || '-'}
+                                  {/* Original content */}
+                                  <div className="mb-2">
+                                    {item.processedContent || '-'}
+                                  </div>
+                                  
+                                  {/* Extended content section, shown only if available */}
+                                  {item.extendedContent && (
+                                    <div className="mt-4 pt-3 border-t border-gray-200">
+                                      <h4 className="font-medium text-gray-700 mb-1">Additional Content:</h4>
+                                      <div className="text-sm text-gray-600">
+                                        {item.extendedContent}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {/* PDF content section, shown only if available */}
+                                  {item.pdfs && item.pdfs.length > 0 && (
+                                    <div className="mt-3 pt-2 border-t border-gray-200">
+                                      <PdfContent pdfs={item.pdfs} />
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
