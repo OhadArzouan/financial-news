@@ -69,6 +69,15 @@ export default function Home() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
+  const [showAddFeed, setShowAddFeed] = useState<boolean>(false);
+  const [showCreateSummary, setShowCreateSummary] = useState<boolean>(false);
+  const [summaryForm, setSummaryForm] = useState({
+    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+    systemPromptId: '',
+    overwrite: false
+  });
+  const [isCreatingSummary, setIsCreatingSummary] = useState<boolean>(false);
   const [newFeedUrl, setNewFeedUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +102,6 @@ export default function Home() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isDeletingSummary, setIsDeletingSummary] = useState<boolean>(false);
-  const [showAddFeed, setShowAddFeed] = useState<boolean>(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -101,13 +109,127 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (isMounted) {
-      fetchFeeds();
-      fetchSummaries();
-      fetchSystemPrompts();
+    const fetchData = async () => {
+      try {
+        // Fetch feeds
+        const feedsResponse = await fetch('/api/feeds');
+        const feedsData = await feedsResponse.json();
+        setFeeds(feedsData);
+        
+        // Fetch summaries
+        const summariesResponse = await fetch('/api/summaries');
+        const summariesData = await summariesResponse.json();
+        setSummaries(summariesData);
+        
+        // Fetch system prompts
+        const promptsResponse = await fetch('/api/system-prompts');
+        if (!promptsResponse.ok) {
+          throw new Error('Failed to fetch system prompts');
+        }
+        const promptsData = await promptsResponse.json();
+        setSystemPrompts(promptsData.systemPrompts || []);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data. Please try refreshing the page.');
+      }
+    };
+    
+    fetchData();
+  }, []);
+
+  // Handle summary form input changes
+  const handleSummaryFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    setSummaryForm(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }));
+  };
+
+  // Create a new summary
+  const handleCreateSummary = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log('Form submitted');
+    
+    try {
+      if (!summaryForm.systemPromptId) {
+        throw new Error('Please select a system prompt');
+      }
+
+      const startDate = new Date(summaryForm.startDate);
+      const endDate = new Date(summaryForm.endDate);
+      
+      // Basic validation
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        throw new Error('Please select valid dates');
+      }
+
+      if (startDate > endDate) {
+        throw new Error('End date must be after start date');
+      }
+
+      console.log('Starting summary creation with:', { startDate, endDate, systemPromptId: summaryForm.systemPromptId });
+      
+      setIsCreatingSummary(true);
+      setError(null);
+      
+      // First, generate the summary content
+      console.log('Calling generate-summary API');
+      const generateResponse = await fetch('/api/generate-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          systemPromptId: summaryForm.systemPromptId,
+        }),
+      });
+
+      if (!generateResponse.ok) {
+        const errorData = await generateResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate summary');
+      }
+
+      const { content } = await generateResponse.json();
+      console.log('Received generated content, now saving summary');
+
+      // Then save the generated summary
+      const response = await fetch('/api/summaries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          systemPromptId: summaryForm.systemPromptId,
+          overwrite: summaryForm.overwrite,
+          content, // Use the generated content
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create summary');
+      }
+
+      const newSummary = await response.json();
+      setSummaries(prev => [newSummary.summary, ...prev]);
+      setShowCreateSummary(false);
+      setSummaryForm({
+        startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0],
+        systemPromptId: systemPrompts[0]?.id || '',
+        overwrite: false
+      });
+    } catch (err) {
+      console.error('Error in summary creation:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create summary');
+    } finally {
+      setIsCreatingSummary(false);
     }
-  }, [isMounted]);
-  
+  };
+
+
+
   // Apply filtering whenever feeds or filter changes
   useEffect(() => {
     if (feeds.length > 0) {
@@ -151,15 +273,10 @@ export default function Home() {
     setError(null);
     setLoading(true);
     try {
-      // Add a timestamp to bust cache
       const timestamp = new Date().getTime();
       const response = await fetch(`/api/summaries?t=${timestamp}`);
-      
-      // Try to get response text first for debugging
       const responseText = await response.text();
       console.log('Raw API response:', responseText);
-      
-      // Parse the JSON manually to avoid JSON parsing errors
       let data;
       try {
         data = JSON.parse(responseText);
@@ -168,20 +285,14 @@ export default function Home() {
         setError('Invalid JSON response from API');
         return;
       }
-      
-      // Check response status
       if (!response.ok) {
         console.error('API error status:', response.status);
         setError(`API error: ${response.status}`);
         return;
       }
-      
-      // Handle the response data
       if (Array.isArray(data)) {
-        // Direct array of summaries
         setSummaries(data);
       } else if (data && Array.isArray(data.summaries)) {
-        // Wrapped in summaries object
         setSummaries(data.summaries);
       } else {
         console.error('Unexpected response format:', data);
@@ -227,7 +338,6 @@ export default function Home() {
         throw new Error(error.message || 'Failed to add feed');
       }
       
-      // Reset form and refresh feeds
       setNewFeedUrl('');
       setShowAddFeed(false);
       await fetchFeeds();
@@ -281,9 +391,7 @@ export default function Home() {
     }
   };
 
-  // Function to refresh a single feed with enhanced content and PDF extraction
   const handleRefreshFeed = async (feedId: string) => {
-    // Add feedId to the set of refreshing feeds
     setRefreshingFeedIds(prev => new Set([...prev, feedId]));
     setError(null);
     
@@ -301,14 +409,12 @@ export default function Home() {
       const result = await response.json();
       console.log('Feed refresh result:', result);
       
-      // Fetch updated feeds
       await fetchFeeds();
       
     } catch (err) {
       console.error(`Error refreshing feed ${feedId}:`, err);
       setError(`Failed to refresh feed: ${(err as Error).message}`);
     } finally {
-      // Remove feedId from the set of refreshing feeds
       setRefreshingFeedIds(prev => {
         const newSet = new Set(prev);
         newSet.delete(feedId);
@@ -317,9 +423,7 @@ export default function Home() {
     }
   };
 
-  // Function to extract PDFs from existing feed items
   const handleExtractPdfs = async (feedId: string) => {
-    // Add feedId to the set of extracting PDF feeds
     setExtractingPdfFeedIds(prev => new Set([...prev, feedId]));
     setError(null);
     
@@ -337,17 +441,14 @@ export default function Home() {
       const result = await response.json();
       console.log('PDF extraction result:', result);
       
-      // Show a success message
       alert(`PDF extraction completed: ${result.stats.pdfsExtracted} PDFs extracted`);
       
-      // Fetch updated feeds
       await fetchFeeds();
       
     } catch (err) {
       console.error(`Error extracting PDFs from feed ${feedId}:`, err);
       setError(`Failed to extract PDFs: ${(err as Error).message}`);
     } finally {
-      // Remove feedId from the set of extracting PDF feeds
       setExtractingPdfFeedIds(prev => {
         const newSet = new Set(prev);
         newSet.delete(feedId);
@@ -387,11 +488,10 @@ export default function Home() {
     if (!selectedPromptId || !dateRange.startDate || !dateRange.endDate) return;
     
     setIsGenerating(true);
-    setRegeneratingId(null); // Ensure regeneratingId is cleared
+    setRegeneratingId(null); 
     setSummaryError(null);
     
     try {
-      // First check if a summary for this prompt and date range already exists
       const existingSummaries = summaries.filter(summary => {
         const summaryStartDate = new Date(summary.startDate).toISOString().split('T')[0];
         const summaryEndDate = new Date(summary.endDate).toISOString().split('T')[0];
@@ -408,7 +508,6 @@ export default function Home() {
         return;
       }
       
-      // Call the generate-summary API
       const response = await fetch('/api/generate-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -425,13 +524,12 @@ export default function Home() {
       
       const data = await response.json();
       
-      // Create a new summary in the database
       const requestBody = {
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
         content: data.content,
         systemPromptId: selectedPromptId,
-        overwrite: true // Always overwrite if a duplicate exists
+        overwrite: true 
       };
       
       console.log('Saving summary with data:', requestBody);
@@ -442,7 +540,6 @@ export default function Home() {
         body: JSON.stringify(requestBody),
       });
       
-      // Read the response body only once
       const responseData = await createResponse.json().catch(() => ({}));
       
       if (!createResponse.ok) {
@@ -450,15 +547,10 @@ export default function Home() {
         throw new Error(`Failed to save summary: ${createResponse.status} ${responseData.error || ''}`);
       }
       
-      // Log any messages from the API
-      if (responseData?.message) {
-        console.log(responseData.message);
-      }
+      console.log(responseData?.message);
       
-      // Refresh the summaries list
       await fetchSummaries();
       
-      // Reset form
       setDateRange({startDate: '', endDate: ''});
       
     } catch (error) {
@@ -478,12 +570,10 @@ export default function Home() {
     setSummaryError(null);
     
     try {
-      // Use the existing summary's date range and prompt ID
       const startDate = new Date(summary.startDate);
       const endDate = new Date(summary.endDate);
       const promptId = summary.systemPromptId;
       
-      // Call the generate-summary API
       const response = await fetch('/api/generate-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -494,7 +584,6 @@ export default function Home() {
         }),
       });
       
-      // Read response data
       const responseData = await response.json().catch(() => ({}));
       
       if (!response.ok) {
@@ -502,7 +591,6 @@ export default function Home() {
         throw new Error(`Failed to regenerate summary: ${response.status} ${responseData.error || ''}`);
       }
       
-      // Update the existing summary
       const updateResponse = await fetch(`/api/summaries/${summary.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -511,7 +599,6 @@ export default function Home() {
         }),
       });
       
-      // Parse the response
       const updateData = await updateResponse.json().catch(() => ({}));
       
       if (!updateResponse.ok) {
@@ -519,7 +606,6 @@ export default function Home() {
         throw new Error(`Failed to update summary: ${updateResponse.status} ${updateData.error || ''}`);
       }
       
-      // Refresh the summaries list
       await fetchSummaries();
       
     } catch (error: any) {
@@ -532,24 +618,23 @@ export default function Home() {
   };
   
   const handleDeleteSummary = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this summary?')) return;
-    
-    setIsDeletingSummary(true);
+    if (!confirm('Are you sure you want to delete this summary? This action cannot be undone.')) {
+      return;
+    }
+
     try {
       const response = await fetch(`/api/summaries/${id}`, {
         method: 'DELETE',
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to delete summary');
       }
-      
-      // Refresh the summaries list
+
       await fetchSummaries();
-    } catch (error) {
-      console.error('Error deleting summary:', error);
-    } finally {
-      setIsDeletingSummary(false);
+    } catch (err) {
+      console.error('Error deleting summary:', err);
+      setError('Failed to delete summary');
     }
   };
 
@@ -561,14 +646,30 @@ export default function Home() {
     try {
       const response = await fetch(`/api/system-prompts/${id}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      if (!response.ok) {
-        throw new Error('Failed to delete prompt');
+      
+      const responseText = await response.text();
+      let responseData;
+      
+      try {
+        responseData = responseText ? JSON.parse(responseText) : {};
+      } catch (e) {
+        console.error('Failed to parse response:', responseText);
+        throw new Error('Received invalid response from server');
       }
+      
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Failed to delete prompt');
+      }
+      
+      // Refresh the prompts list
       await fetchSystemPrompts();
     } catch (err) {
       console.error('Error deleting prompt:', err);
-      setError('Failed to delete prompt');
+      setError(err instanceof Error ? err.message : 'Failed to delete prompt');
     } finally {
       setLoading(false);
     }
@@ -579,11 +680,6 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Title heading removed */}
         
-        {/* PDF Statistics Dashboard */}
-        <div className="mb-8">
-          <PdfStats />
-        </div>
-
         {error && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
             <span className="block sm:inline">{error}</span>
@@ -613,9 +709,199 @@ export default function Home() {
           {/* Tab content */}
           <div className="p-6">
             {activeTab === 'summaries' && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Summaries</h2>
-                {/* Summaries content */}
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Summaries</h2>
+                  <button
+                    onClick={() => setShowCreateSummary(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
+                  >
+                    Create Summary
+                  </button>
+                </div>
+
+                {/* Create Summary Form */}
+                {showCreateSummary && (
+                  <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                    <h3 className="text-lg font-medium mb-4">Create New Summary</h3>
+                    <form onSubmit={handleCreateSummary} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
+                            Start Date
+                          </label>
+                          <input
+                            type="date"
+                            id="startDate"
+                            name="startDate"
+                            value={summaryForm.startDate}
+                            onChange={handleSummaryFormChange}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            max={summaryForm.endDate}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
+                            End Date
+                          </label>
+                          <input
+                            type="date"
+                            id="endDate"
+                            name="endDate"
+                            value={summaryForm.endDate}
+                            onChange={handleSummaryFormChange}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            min={summaryForm.startDate}
+                            max={new Date().toISOString().split('T')[0]}
+                            required
+                          />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="systemPromptId" className="block text-sm font-medium text-gray-700 mb-1">
+                          System Prompt
+                        </label>
+                        <select
+                          id="systemPromptId"
+                          name="systemPromptId"
+                          value={summaryForm.systemPromptId}
+                          onChange={handleSummaryFormChange}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          required
+                        >
+                          {systemPrompts.map((prompt) => (
+                            <option key={prompt.id} value={prompt.id}>
+                              {prompt.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id="overwrite"
+                          name="overwrite"
+                          checked={summaryForm.overwrite}
+                          onChange={handleSummaryFormChange}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="overwrite" className="ml-2 block text-sm text-gray-700">
+                          Overwrite existing summary for this period
+                        </label>
+                      </div>
+
+                      <div className="flex justify-end space-x-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateSummary(false)}
+                          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                          disabled={isCreatingSummary}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                          disabled={isCreatingSummary}
+                        >
+                          {isCreatingSummary ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Creating...
+                            </>
+                          ) : 'Create Summary'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Summaries List */}
+                <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+                  {summaries.length > 0 ? (
+                    <div className="divide-y divide-gray-200">
+                      {summaries.map((summary) => {
+                        const startDate = new Date(summary.startDate);
+                        const endDate = new Date(summary.endDate);
+                        const systemPrompt = systemPrompts.find(p => p.id === summary.systemPromptId);
+                        
+                        return (
+                          <div key={summary.id} className="p-6 hover:bg-gray-50">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="text-lg font-medium text-gray-900">
+                                  {startDate.toLocaleDateString()} - {endDate.toLocaleDateString()}
+                                </h3>
+                                {systemPrompt && (
+                                  <p className="text-sm text-gray-500 mt-1">
+                                    Using prompt: <span className="font-medium">{systemPrompt.name}</span>
+                                  </p>
+                                )}
+                                <div className="mt-4 p-4 bg-gray-50 rounded-md max-h-60 overflow-y-auto">
+                                  <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: summary.content || 'No content available' }} />
+                                </div>
+                              </div>
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleDeleteSummary(summary.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                  title="Delete summary"
+                                >
+                                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-xs text-gray-500">
+                              Created on {new Date(summary.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <svg
+                        className="mx-auto h-12 w-12 text-gray-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          vectorEffect="non-scaling-stroke"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      <h3 className="mt-2 text-sm font-medium text-gray-900">No summaries</h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Get started by creating a new summary.
+                      </p>
+                      <div className="mt-6">
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateSummary(true)}
+                          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                          </svg>
+                          New Summary
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
