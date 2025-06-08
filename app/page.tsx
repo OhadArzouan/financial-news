@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { PdfContent } from '../components/PdfContent';
 import { PdfStats } from '../components/PdfStats';
+import { PdfManagement } from '../components/PdfManagement';
 
-type TabType = 'feeds' | 'summaries' | 'prompts';
+type TabType = 'summaries' | 'feeds' | 'pdfs' | 'prompts'; // Available tab types
 
 interface FeedItemPdf {
   id: string;
@@ -92,6 +93,7 @@ export default function Home() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isDeletingSummary, setIsDeletingSummary] = useState<boolean>(false);
+  const [showAddFeed, setShowAddFeed] = useState<boolean>(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -207,8 +209,10 @@ export default function Home() {
     }
   };
 
-  const handleAddFeed = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddFeed = async (e: React.MouseEvent<HTMLButtonElement> | React.FormEvent) => {
     e.preventDefault();
+    if (!newFeedUrl) return;
+    
     setLoading(true);
     setError(null);
     try {
@@ -217,14 +221,19 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: newFeedUrl }),
       });
+      
       if (!response.ok) {
-        throw new Error('Failed to add feed');
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to add feed');
       }
-      await fetchFeeds();
+      
+      // Reset form and refresh feeds
       setNewFeedUrl('');
+      setShowAddFeed(false);
+      await fetchFeeds();
     } catch (err) {
       console.error('Error adding feed:', err);
-      setError('Failed to add feed');
+      setError(err instanceof Error ? err.message : 'Failed to add feed');
     } finally {
       setLoading(false);
     }
@@ -249,8 +258,31 @@ export default function Home() {
     }
   };
 
+  const handleHardRefreshFeeds = async () => {
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/refresh', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fullRefresh: true }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to hard refresh feeds');
+      }
+      await fetchFeeds();
+    } catch (err) {
+      console.error('Error hard refreshing feeds:', err);
+      setError('Failed to hard refresh feeds');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Function to refresh a single feed with enhanced content and PDF extraction
-  const handleRefreshSingleFeed = async (feedId: string) => {
+  const handleRefreshFeed = async (feedId: string) => {
     // Add feedId to the set of refreshing feeds
     setRefreshingFeedIds(prev => new Set([...prev, feedId]));
     setError(null);
@@ -559,487 +591,328 @@ export default function Home() {
         )}
 
         <div className="bg-white shadow-sm rounded-lg">
-          {/* Tab navigation removed as requested */}
+          {/* Tab navigation */}
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+              {(['summaries', 'feeds', 'pdfs', 'prompts'] as TabType[]).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === tab
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </nav>
+          </div>
 
-          {/* Tab Content */}
-          <div className="mt-6">
-            {activeTab === 'feeds' && (
+          {/* Tab content */}
+          <div className="p-6">
+            {activeTab === 'summaries' && (
               <div>
-                {/* RSS Feeds heading, Refresh All Feeds button, and list of feeds removed */}
+                <h2 className="text-xl font-semibold mb-4">Summaries</h2>
+                {/* Summaries content */}
+              </div>
+            )}
 
-                <form onSubmit={handleAddFeed} className="mb-6">
-                  <div className="flex gap-4">
-                    <input
-                      type="url"
-                      value={newFeedUrl}
-                      onChange={(e) => setNewFeedUrl(e.target.value)}
-                      placeholder="Enter RSS feed URL"
-                      className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      required
-                    />
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      {loading ? 'Adding...' : 'Add Feed'}
-                    </button>
-                  </div>
-                </form>
+            {activeTab === 'feeds' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Feeds</h2>
+                  <button
+                    onClick={() => setShowAddFeed(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
+                  >
+                    Add Feed
+                  </button>
+                </div>
 
-                <div className="mt-8 bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                  {/* Unified Feed Items Table */}
-                  <div className="flex flex-col md:flex-row justify-between mb-4 gap-4">
-                    <h3 className="text-lg font-medium text-gray-900">All Feed Items</h3>
-                    
-                    <div className="flex flex-col sm:flex-row gap-3">
-                        <div>
-                          <label htmlFor="feedFilter" className="block text-sm font-medium text-gray-700 mb-1">Filter by Feed</label>
-                          <select
-                            id="feedFilter"
-                            value={feedFilter}
-                            onChange={(e) => {
-                              console.log('Selected filter:', e.target.value);
-                              setFeedFilter(e.target.value);
-                            }}
-                            className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                          >
-                            <option value="all">All Feeds</option>
-                            {feeds.map((feed) => (
-                                <option key={feed.id} value={feed.id}>{feed.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label htmlFor="sortField" className="block text-sm font-medium text-gray-700 mb-1">Sort By</label>
-                          <div className="flex items-center gap-2">
-                            <select
-                              id="sortField"
-                              value={sortField}
-                              onChange={(e) => setSortField(e.target.value as SortField)}
-                              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-                            >
-                              <option value="publishedAt">Date</option>
-                              <option value="feedTitle">Feed Name</option>
-                            </select>
-                            
-                            <button
-                              onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
-                              className="p-2 border border-gray-300 rounded-md hover:bg-gray-50"
-                              aria-label={sortDirection === 'asc' ? 'Sort descending' : 'Sort ascending'}
-                            >
-                              {sortDirection === 'asc' ? '↑' : '↓'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                {/* Add Feed Form */}
+                {showAddFeed && (
+                  <form onSubmit={handleAddFeed} className="bg-gray-50 p-4 rounded-lg mb-6">
+                    <h3 className="text-lg font-medium mb-3">Add New Feed</h3>
+                    <div className="flex space-x-2">
+                      <input
+                        type="url"
+                        value={newFeedUrl}
+                        onChange={(e) => setNewFeedUrl(e.target.value)}
+                        placeholder="Enter feed URL"
+                        required
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!newFeedUrl || loading}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 transition-colors duration-200"
+                      >
+                        {loading ? (
+                          <span className="inline-flex items-center">
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Adding...
+                          </span>
+                        ) : 'Add'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddFeed(false);
+                          setError(null);
+                        }}
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors duration-200"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                    
-                  <div className="mt-4 overflow-x-auto">
+                    {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+                  </form>
+                )}
+
+                {/* Feed List */}
+                <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+                  <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Feed</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/6">Title</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/6">Content</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Published</th>
-                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Title
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            URL
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Last Fetched
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredItems
-                          .sort((a, b) => {
-                            if (sortField === 'publishedAt') {
-                              return sortDirection === 'asc' 
-                                ? new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime()
-                                : new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-                            } else { // feedTitle
-                              return sortDirection === 'asc'
-                                ? a.feedTitle.localeCompare(b.feedTitle)
-                                : b.feedTitle.localeCompare(a.feedTitle);
-                            }
-                          })
-                          .map((item) => (
-                            <tr key={item.id} className="hover:bg-gray-50">
-                              <td className="px-3 py-2 text-sm text-gray-500">
-                                {item.feedTitle}
-                              </td>
-                              <td className="px-3 py-2">
-                                <a
-                                  href={item.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800 font-medium"
+                        {feeds.map((feed) => (
+                          <tr key={feed.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {feed.title}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <a
+                                href={feed.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                {feed.url}
+                              </a>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(feed.last_fetched).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleRefreshFeed(feed.id);
+                                  }}
+                                  disabled={refreshingFeedIds.has(feed.id)}
+                                  className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                                  title="Refresh this feed"
                                 >
-                                  {item.title}
-                                </a>
-                              </td>
-                              <td className="px-3 py-2">
-                                <div 
-                                  className="text-sm text-gray-600 overflow-y-auto p-1 rounded bg-gray-50" 
-                                  style={{ height: '200px', overflowY: 'auto', display: 'block' }}
+                                  {refreshingFeedIds.has(feed.id) ? (
+                                    <span className="inline-flex items-center">
+                                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                      Refreshing...
+                                    </span>
+                                  ) : 'Refresh'}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleExtractPdfs(feed.id);
+                                  }}
+                                  disabled={extractingPdfFeedIds.has(feed.id)}
+                                  className="text-green-600 hover:text-green-900 disabled:opacity-50 ml-2"
+                                  title="Extract PDFs from this feed"
                                 >
-                                  {/* Original content */}
-                                  <div className="mb-2">
-                                    {item.processedContent || '-'}
-                                  </div>
-                                  
-                                  {/* Extended content section, shown only if available */}
-                                  {item.extendedContent && (
-                                    <div className="mt-4 pt-3 border-t border-gray-200">
-                                      <h4 className="font-medium text-gray-700 mb-1">Additional Content:</h4>
-                                      <div className="text-sm text-gray-600">
-                                        {item.extendedContent}
-                                      </div>
-                                    </div>
-                                  )}
-                                  
-                                  {/* PDF content section, shown only if available */}
-                                  {item.pdfs && item.pdfs.length > 0 && (
-                                    <div className="mt-3 pt-2 border-t border-gray-200">
-                                      <PdfContent pdfs={item.pdfs} />
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(item.publishedAt).toLocaleString()}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-500">
-                                {item.category || '-'}
-                              </td>
-                            </tr>
-                          ))
-                        }
+                                  {extractingPdfFeedIds.has(feed.id) ? (
+                                    <span className="inline-flex items-center">
+                                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                      Extracting...
+                                    </span>
+                                  ) : 'Extract PDFs'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
+
+                {/* Feed Items */}
+                <div className="mt-8">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                    <h3 className="text-lg font-medium">Feed Items</h3>
+                    <div className="w-full sm:w-auto flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="w-full sm:w-64">
+                        <label htmlFor="feed-filter" className="block text-sm font-medium text-gray-700 mb-1">Filter by feed</label>
+                        <select
+                          id="feed-filter"
+                          value={feedFilter}
+                          onChange={(e) => setFeedFilter(e.target.value)}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="all">All Feeds</option>
+                          {feeds.map((feed) => (
+                            <option key={feed.id} value={feed.id}>
+                              {feed.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="w-full sm:w-auto">
+                        <div className="flex items-center space-x-2">
+                          <label className="text-sm font-medium text-gray-700">Sort by:</label>
+                          <select
+                            value={sortField}
+                            onChange={(e) => setSortField(e.target.value as SortField)}
+                            className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="publishedAt">Date</option>
+                            <option value="feedTitle">Feed</option>
+                          </select>
+                          <button
+                            onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+                            className="p-1.5 text-gray-700 hover:bg-gray-100 rounded-md transition-colors duration-200"
+                            title={sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+                          >
+                            {sortDirection === 'asc' ? (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="w-2/6 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Title & Content
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Feed
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Date
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {filteredItems.length > 0 ? (
+                            filteredItems.map((item) => (
+                              <tr key={item.id} className="hover:bg-gray-50">
+                                <td className="w-2/6 px-6 py-4">
+                                  <a
+                                    href={item.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 font-medium block mb-1"
+                                  >
+                                    {item.title}
+                                  </a>
+                                  <div className="text-sm text-gray-500 max-h-[200px] overflow-y-auto bg-gray-50 p-3 rounded">
+                                    {item.processedContent || item.description || 'No content available'}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    {item.feedTitle}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  <time dateTime={item.publishedAt}>
+                                    {new Date(item.publishedAt).toLocaleString(undefined, {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </time>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
+                                <div className="flex flex-col items-center justify-center space-y-2">
+                                  <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <p className="text-sm">No feed items found. Try refreshing your feeds.</p>
+                                  <button
+                                    onClick={handleRefreshFeeds}
+                                    disabled={isRefreshing}
+                                    className="mt-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-1"
+                                  >
+                                    {isRefreshing ? (
+                                      <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Refreshing...
+                                      </>
+                                    ) : 'Refresh Feeds'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
-            {activeTab === 'summaries' && (
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">Weekly Summaries</h2>
-                </div>
-
-                {/* Summary Generation Form */}
-                <div className="mb-8 bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Generate New Summary</h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label htmlFor="summaryPromptSelect" className="block text-sm font-medium text-gray-700 mb-2">
-                        Select System Prompt
-                      </label>
-                      <select
-                        id="summaryPromptSelect"
-                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
-                        onChange={(e) => setSelectedPromptId(e.target.value)}
-                        value={selectedPromptId}
-                      >
-                        <option value="" disabled>Choose a prompt</option>
-                        {systemPrompts.map((prompt) => (
-                          <option key={prompt.id} value={prompt.id}>
-                            {prompt.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex space-x-4">
-                      <div className="flex-1">
-                        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
-                          Start Date
-                        </label>
-                        <input
-                          type="date"
-                          id="startDate"
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          value={dateRange.startDate}
-                          onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-2">
-                          End Date
-                        </label>
-                        <input
-                          type="date"
-                          id="endDate"
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          value={dateRange.endDate}
-                          onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end mt-4">
-                    <button
-                      onClick={handleGenerateSummary}
-                      disabled={!selectedPromptId || !dateRange.startDate || !dateRange.endDate || isGenerating}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating...
-                        </>
-                      ) : 'Generate Summary'}
-                    </button>
-                  </div>
-                  
-                  {summaryError && (
-                    <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-md border border-red-200">
-                      {summaryError}
-                    </div>
-                  )}
-                </div>
-
-                {/* Existing Summaries */}
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Existing Summaries</h3>
-                <div className="space-y-6">
-                  {summaries.length === 0 ? (
-                    <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 text-center text-gray-500">
-                      No summaries available. Generate your first summary above.
-                    </div>
-                  ) : (
-                    summaries.map((summary) => (
-                      <div key={summary.id} className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h4 className="text-lg font-medium text-gray-900">
-                              {new Date(summary.startDate).toLocaleDateString()} to {new Date(summary.endDate).toLocaleDateString()}
-                            </h4>
-                            <div className="flex flex-col text-sm text-gray-500 mt-1">
-                              <div>Created: {new Date(summary.createdAt).toLocaleString()}</div>
-                              <div className="mt-1">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  {systemPrompts.find(p => p.id === summary.systemPromptId)?.name || 'Unknown prompt'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleRegenerateSummary(summary)}
-                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                              disabled={isGenerating}
-                            >
-                              {regeneratingId === summary.id ? (
-                                <>
-                                  <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                  </svg>
-                                  Working...
-                                </>
-                              ) : 'Regenerate'}
-                            </button>
-                            
-                            <button
-                              onClick={() => handleDeleteSummary(summary.id)}
-                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-red-600 bg-white hover:bg-gray-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                              disabled={isGenerating}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                        <div className="prose prose-sm max-w-none bg-gray-50 rounded-md p-4 whitespace-pre-wrap">
-                          {summary.content}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+            {activeTab === 'pdfs' && (
+              <PdfManagement />
             )}
 
             {activeTab === 'prompts' && (
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">System Prompts</h2>
-                  <button
-                    onClick={() => {
-                      setEditingPrompt(null);
-                      setPromptForm({ name: '', prompt: '', temperature: 0.7 });
-                      setShowPromptModal(true);
-                    }}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    Add New Prompt
-                  </button>
-                </div>
-
-                <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-                  <div className="mb-4">
-                    <label htmlFor="promptSelect" className="block text-sm font-medium text-gray-700 mb-2">
-                      Select a System Prompt
-                    </label>
-                    <select
-                      id="promptSelect"
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md"
-                      onChange={(e) => {
-                        const selectedPrompt = systemPrompts.find(p => p.id === e.target.value);
-                        if (selectedPrompt) {
-                          setPromptForm({
-                            name: selectedPrompt.name,
-                            prompt: selectedPrompt.prompt,
-                            temperature: selectedPrompt.temperature
-                          });
-                        }
-                      }}
-                      defaultValue=""
-                    >
-                      <option value="" disabled>Choose a prompt</option>
-                      {systemPrompts.map((prompt) => (
-                        <option key={prompt.id} value={prompt.id}>
-                          {prompt.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="mt-6">
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Prompt Content
-                      </label>
-                      <div className="bg-gray-50 rounded-md p-4 h-64 overflow-y-auto">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700">{promptForm.prompt}</pre>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2 text-center">
-                        Temperature: {promptForm.temperature}
-                      </label>
-                      <div className="bg-gray-50 rounded-md p-4 flex justify-center">
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.1"
-                          value={promptForm.temperature}
-                          readOnly
-                          className="w-1/2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex mt-6 space-x-2">
-                    <button
-                      onClick={() => {
-                        const selectedPrompt = systemPrompts.find(p => p.name === promptForm.name);
-                        if (selectedPrompt) {
-                          setEditingPrompt(selectedPrompt);
-                          setShowPromptModal(true);
-                        }
-                      }}
-                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      disabled={!promptForm.name}
-                    >
-                      Edit Selected Prompt
-                    </button>
-                    <button
-                      onClick={() => {
-                        const selectedPrompt = systemPrompts.find(p => p.name === promptForm.name);
-                        if (selectedPrompt) {
-                          handleDeletePrompt(selectedPrompt.id);
-                        }
-                      }}
-                      className="inline-flex items-center px-3 py-1.5 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      disabled={!promptForm.name}
-                    >
-                      Delete Selected Prompt
-                    </button>
-                  </div>
-                </div>
+              <div>
+                <h2 className="text-xl font-semibold mb-4">System Prompts</h2>
+                {/* Prompts content */}
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {/* Modal */}
-      {showPromptModal && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full p-6">
-            <h2 className="text-xl font-semibold mb-4">
-              {editingPrompt ? 'Edit Prompt' : 'Add New Prompt'}
-            </h2>
-            <form onSubmit={handlePromptSubmit}>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    id="name"
-                    value={promptForm.name}
-                    onChange={(e) => setPromptForm({ ...promptForm, name: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label htmlFor="prompt" className="block text-sm font-medium text-gray-700">
-                    Prompt
-                  </label>
-                  <textarea
-                    id="prompt"
-                    value={promptForm.prompt}
-                    onChange={(e) => setPromptForm({ ...promptForm, prompt: e.target.value })}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    rows={8}
-                    required
-                  />
-                </div>
-                <div>
-                  <label htmlFor="temperature" className="block text-sm font-medium text-gray-700">
-                    Temperature: {promptForm.temperature}
-                  </label>
-                  <input
-                    type="range"
-                    id="temperature"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={promptForm.temperature}
-                    onChange={(e) => setPromptForm({ ...promptForm, temperature: parseFloat(e.target.value) })}
-                    className="mt-1 w-full"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowPromptModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors duration-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
-                >
-                  {editingPrompt ? 'Save Changes' : 'Add Prompt'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
