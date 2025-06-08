@@ -8,23 +8,7 @@ import { FileText, Home, Settings } from 'lucide-react';
 export function MainNav() {
   const pathname = usePathname();
   
-  const navItems = [
-    {
-      name: 'Home',
-      href: '/',
-      icon: Home
-    },
-    {
-      name: 'PDF Management',
-      href: '/admin/pdfs',
-      icon: FileText
-    },
-    {
-      name: 'Settings',
-      href: '/admin/settings',
-      icon: Settings
-    }
-  ];
+  const navItems: { name: string; href: string; icon: React.ElementType }[] = [];
   
   return (
     <nav className="flex items-center space-x-4 lg:space-x-6 mx-6">

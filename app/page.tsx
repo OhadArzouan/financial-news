@@ -545,9 +545,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">RSS Feed Aggregator</h1>
-        </div>
+        {/* Title heading removed */}
         
         {/* PDF Statistics Dashboard */}
         <div className="mb-8">
@@ -561,81 +559,13 @@ export default function Home() {
         )}
 
         <div className="bg-white shadow-sm rounded-lg">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-              <button
-                onClick={() => setActiveTab('feeds')}
-                className={`${activeTab === 'feeds' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-              >
-                Feeds
-              </button>
-              <button
-                onClick={() => setActiveTab('summaries')}
-                className={`${activeTab === 'summaries' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-              >
-                Summaries
-              </button>
-              <button
-                onClick={() => setActiveTab('prompts')}
-                className={`${activeTab === 'prompts' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-              >
-                System Prompts
-              </button>
-            </nav>
-          </div>
+          {/* Tab navigation removed as requested */}
 
           {/* Tab Content */}
           <div className="mt-6">
             {activeTab === 'feeds' && (
               <div>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-semibold">RSS Feeds</h2>
-                  <div className="flex space-x-4">
-                    <button
-                      onClick={handleRefreshFeeds}
-                      disabled={isRefreshing}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      {isRefreshing ? 'Refreshing...' : 'Refresh All Feeds'}
-                    </button>
-                  </div>
-                </div>
-                
-                {/* List of feeds with individual refresh buttons */}
-                <div className="mb-6 bg-white shadow overflow-hidden sm:rounded-md">
-                  <ul className="divide-y divide-gray-200">
-                    {feeds.map((feed) => (
-                      <li key={feed.id} className="px-4 py-4 sm:px-6">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h3 className="text-lg font-medium text-gray-800">{feed.title}</h3>
-                            <p className="text-sm text-gray-500 truncate">{feed.url}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              Last updated: {new Date(feed.last_fetched).toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleRefreshSingleFeed(feed.id)}
-                              disabled={refreshingFeedIds.has(feed.id)}
-                              className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {refreshingFeedIds.has(feed.id) ? 'Refreshing...' : 'Refresh'}
-                            </button>
-                            <button
-                              onClick={() => handleExtractPdfs(feed.id)}
-                              disabled={extractingPdfFeedIds.has(feed.id)}
-                              className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Extract PDF content from existing feed items"
-                            >
-                              {extractingPdfFeedIds.has(feed.id) ? 'Extracting...' : 'Extract PDFs'}
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {/* RSS Feeds heading, Refresh All Feeds button, and list of feeds removed */}
 
                 <form onSubmit={handleAddFeed} className="mb-6">
                   <div className="flex gap-4">
