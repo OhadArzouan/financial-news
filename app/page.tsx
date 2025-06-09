@@ -1435,13 +1435,15 @@ export default function Home() {
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-semibold">System Prompts</h2>
-                  <button
-                    onClick={() => setShowAddPrompt(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2"
-                  >
-                    <span>+</span>
-                    <span>Add Prompt</span>
-                  </button>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => setShowAddPrompt(true)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2"
+                    >
+                      <span>+</span>
+                      <span>Add Prompt</span>
+                    </button>
+                  </div>
                 </div>
                 
                 {systemPrompts.length === 0 ? (
@@ -1455,37 +1457,63 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {systemPrompts.map((prompt) => (
-                      <div key={prompt.id} className="border rounded-lg overflow-hidden">
-                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                          <h3 className="font-medium">{prompt.name}</h3>
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <label htmlFor="prompt-select" className="block text-sm font-medium text-gray-700">
+                        Select a Prompt
+                      </label>
+                      <div className="flex space-x-2">
+                        <select
+                          id="prompt-select"
+                          className="flex-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                          value={selectedPrompt?.id || ''}
+                          onChange={(e) => {
+                            const prompt = systemPrompts.find(p => p.id === e.target.value) || null;
+                            setSelectedPrompt(prompt);
+                          }}
+                        >
+                          <option value="">-- Select a prompt --</option>
+                          {systemPrompts.map((prompt) => (
+                            <option key={prompt.id} value={prompt.id}>
+                              {prompt.name}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedPrompt && (
                           <div className="flex space-x-2">
-                            <button 
-                              onClick={() => handleEditPrompt(prompt)}
-                              className="text-blue-600 hover:text-blue-800"
+                            <button
+                              onClick={() => handleEditPrompt(selectedPrompt)}
+                              className="px-3 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50"
                             >
                               Edit
                             </button>
-                            <button 
-                              onClick={() => handleDeletePrompt(prompt.id)}
-                              className="text-red-600 hover:text-red-800"
+                            <button
+                              onClick={() => handleDeletePrompt(selectedPrompt.id)}
+                              className="px-3 py-2 border border-red-300 bg-white text-red-700 rounded-md hover:bg-red-50"
                             >
                               Delete
                             </button>
                           </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {selectedPrompt && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b">
+                          <h3 className="font-medium">{selectedPrompt.name}</h3>
                         </div>
                         <div className="p-4">
-                          <div className="mb-3">
+                          <div className="mb-4">
                             <span className="text-sm font-medium text-gray-700">Temperature: </span>
-                            <span className="text-sm text-gray-600">{prompt.temperature}</span>
+                            <span className="text-sm text-gray-600">{selectedPrompt.temperature}</span>
                           </div>
-                          <div className="bg-gray-50 p-3 rounded-md">
-                            <pre className="text-sm text-gray-800 whitespace-pre-wrap">{prompt.prompt}</pre>
+                          <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto">
+                            <pre className="text-sm text-gray-800 whitespace-pre-wrap">{selectedPrompt.prompt}</pre>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
