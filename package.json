@@ -11,6 +11,7 @@
   "dependencies": {
     "@prisma/client": "^6.8.2",
     "@tailwindcss/typography": "^0.5.16",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "lucide-react": "^0.513.0",
     "next": "15.3.2",

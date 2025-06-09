@@ -92,34 +92,29 @@ export async function GET() {
     const feeds = await prisma.feed.findMany({
       include: {
         items: {
-          select: {
-            id: true,
-            title: true,
-            link: true,
-            description: true,
-            content: true,
-            processedContent: true,
-            extendedContent: true, // Include the extended content
-            publishedAt: true,
-            author: true,
-            category: true,
-            feedId: true,
-            createdAt: true,
-            pdfs: true,           // Include the PDFs relation
+          include: {
+            pdfs: true
           },
           orderBy: {
-            publishedAt: 'desc'
+            publishedAt: 'desc' as const,
           },
-          take: 50
-        }
-      }
+          take: 50,
+        },
+      },
+      orderBy: {
+        title: 'asc' as const,
+      },
     });
     
+    console.log('Fetched feeds with items:', JSON.stringify(feeds, null, 2));
     return NextResponse.json(feeds);
   } catch (error) {
     console.error('Error fetching feeds:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch feeds' },
+      { 
+        error: 'Failed to fetch feeds',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }

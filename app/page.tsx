@@ -1,12 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PdfContent } from '../components/PdfContent';
 import { PdfStats } from '../components/PdfStats';
 import { PdfManagement } from '../components/PdfManagement';
+import { format, subDays, parseISO } from 'date-fns';
+import { RefreshCw, Plus, Trash2, FileText, ExternalLink, FileText as FileTextIcon, File as FileIcon } from 'lucide-react';
 
-type TabType = 'summaries' | 'feeds' | 'pdfs' | 'prompts'; // Available tab types
+// Type Definitions
+type TabType = 'summaries' | 'feeds' | 'pdfs' | 'prompts';
+type SortDirection = 'asc' | 'desc';
+type SortField = 'publishedAt' | 'feedTitle' | 'title';
 
+// Interfaces
 interface FeedItemPdf {
   id: string;
   url: string;
@@ -15,26 +21,60 @@ interface FeedItemPdf {
   createdAt: string;
 }
 
-interface FeedItem {
+interface FeedItemBase {
   id: string;
   title: string;
   link: string;
   description: string;
+  content: string;
   publishedAt: string;
+  feedId: string;
+  feedTitle?: string;
+  feedUrl?: string;
+  pdfs?: FeedItemPdf[];
+  feed?: {
+    title: string;
+    url: string;
+  };
   processedContent?: string;
-  extendedContent?: string; // Content fetched from the linked URL
-  pdfs?: FeedItemPdf[];     // Array of PDFs attached to this feed item
+  extendedContent?: string;
   author?: string;
   category?: string;
-  feedId: string; // This is the ID of the feed this item belongs to
+  createdAt?: string;
+}
+
+interface FeedItem extends FeedItemBase {
+  feedTitle: string;
+  feedUrl: string;
+}
+
+interface FeedItemWithFeed extends Omit<FeedItemBase, 'feedId'> {
+  feedTitle: string;
+  feedUrl: string;
+  feedId: string;
 }
 
 interface Feed {
   id: string;
   title: string;
   url: string;
-  last_fetched: string;
-  items: FeedItem[];
+  lastFetched: string | null;
+  last_fetched?: string;
+  description: string | null;
+  author: string | null;
+  feedItems: FeedItem[];
+  items: FeedItem[]; // Alias for feedItems
+}
+
+interface Summary {
+  id: string;
+  content: string;
+  createdAt: string;
+  systemPromptId: string;
+  startDate: string;
+  endDate: string;
+  systemPrompt?: SystemPrompt;
+  isDeleted?: boolean;
 }
 
 interface SystemPrompt {
@@ -42,17 +82,9 @@ interface SystemPrompt {
   name: string;
   prompt: string;
   temperature: number;
-  created_at: string;
-}
-
-interface Summary {
-  id: string;
-  startDate: string;
-  endDate: string;
-  isDeleted?: boolean;
-  content: string;
   createdAt: string;
-  systemPromptId: string;
+  updatedAt: string;
+  created_at?: string; // For backward compatibility
 }
 
 interface PromptForm {
@@ -61,60 +93,115 @@ interface PromptForm {
   temperature: number;
 }
 
-type SortDirection = 'asc' | 'desc';
-type SortField = 'publishedAt' | 'feedTitle';
-
 export default function Home() {
+  // Component State
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // UI State
   const [activeTab, setActiveTab] = useState<TabType>('feeds');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  
+  // Modal States
+  const [showAddFeed, setShowAddFeed] = useState(false);
+  const [showAddPrompt, setShowAddPrompt] = useState(false);
+  const [showPdfManager, setShowPdfManager] = useState(false);
+  const [showCreateSummary, setShowCreateSummary] = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  
+  // Data States
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
-  const [showAddFeed, setShowAddFeed] = useState<boolean>(false);
-  const [showCreateSummary, setShowCreateSummary] = useState<boolean>(false);
+  const [allItems, setAllItems] = useState<FeedItem[]>([]);
+  const [filteredItems, setFilteredItems] = useState<FeedItem[]>([]);
+  
+  // Filtering & Sorting State
+  const [feedFilter, setFeedFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<SortField>('publishedAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [dateRange, setDateRange] = useState({
+    start: subDays(new Date(), 7).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
+  });
+  
+  // Form State
+  const [newFeedUrl, setNewFeedUrl] = useState('');
+  const [newPrompt, setNewPrompt] = useState<PromptForm>({
+    name: '',
+    prompt: '',
+    temperature: 0.7
+  });
+  
   const [summaryForm, setSummaryForm] = useState({
     startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
     systemPromptId: '',
     overwrite: false
   });
-  const [isCreatingSummary, setIsCreatingSummary] = useState<boolean>(false);
-  const [newFeedUrl, setNewFeedUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  
+  // Loading & Status States
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCreatingSummary, setIsCreatingSummary] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isDeletingSummary, setIsDeletingSummary] = useState(false);
+  
+  // Error States
+  const [error, setError] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  
+  // Selection States
+  const [selectedPdf, setSelectedPdf] = useState<FeedItemPdf | null>(null);
+  const [selectedSummary, setSelectedSummary] = useState<Summary | null>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<SystemPrompt | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
+  const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  
+  // Processing States
   const [refreshingFeedIds, setRefreshingFeedIds] = useState<Set<string>>(new Set());
   const [extractingPdfFeedIds, setExtractingPdfFeedIds] = useState<Set<string>>(new Set());
-  const [showPromptModal, setShowPromptModal] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
-  const [promptForm, setPromptForm] = useState<PromptForm>({
-    name: '',
-    prompt: '',
-    temperature: 0.7,
-  });
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [sortField, setSortField] = useState<SortField>('publishedAt');
-  const [feedFilter, setFeedFilter] = useState<string>('all');
-  const [filteredItems, setFilteredItems] = useState<(FeedItem & { feedTitle: string })[]>([]);
-  const [isMounted, setIsMounted] = useState(false);
-  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
-  const [dateRange, setDateRange] = useState<{startDate: string, endDate: string}>({startDate: '', endDate: ''});
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [isDeletingSummary, setIsDeletingSummary] = useState<boolean>(false);
-
+  
+  // Derived State
+  const feedItems = useMemo(() => {
+    return feeds.flatMap(feed => feed.feedItems || []);
+  }, [feeds]);
+  
+  const filteredFeedItems = useMemo(() => {
+    if (feedFilter === 'all') return feedItems;
+    return feedItems.filter(item => item.feedId === feedFilter);
+  }, [feedItems, feedFilter]);
+  
+  // Component Mount Effect
   useEffect(() => {
     setIsMounted(true);
     return () => setIsMounted(false);
   }, []);
 
+  // Fetch data on component mount
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setIsLoading(true);
+        
         // Fetch feeds
         const feedsResponse = await fetch('/api/feeds');
         const feedsData = await feedsResponse.json();
-        setFeeds(feedsData);
+        
+        // Ensure feedsData is an array before mapping
+        const feedsArray = Array.isArray(feedsData) ? feedsData : [];
+        
+        // Transform the data to match our interface
+        const transformedFeeds = feedsArray.map((feed: any) => ({
+          ...feed,
+          lastFetched: feed.lastFetched || feed.last_fetched || null,
+          items: feed.items || [],
+          feedItems: feed.items || []
+        }));
+        
+        setFeeds(transformedFeeds);
         
         // Fetch summaries
         const summariesResponse = await fetch('/api/summaries');
@@ -123,28 +210,107 @@ export default function Home() {
         
         // Fetch system prompts
         const promptsResponse = await fetch('/api/system-prompts');
-        if (!promptsResponse.ok) {
-          throw new Error('Failed to fetch system prompts');
-        }
         const promptsData = await promptsResponse.json();
-        setSystemPrompts(promptsData.systemPrompts || []);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data. Please try refreshing the page.');
+        setSystemPrompts(promptsData);
+        
+        // Flatten all feed items for the unified view
+        const allFeedItems: FeedItem[] = [];
+        
+        transformedFeeds.forEach((feed: Feed) => {
+          if (!feed.items) return;
+          
+          feed.items.forEach((item: FeedItem) => {
+            allFeedItems.push({
+              ...item,
+              feedTitle: feed.title,
+              feedUrl: feed.url,
+              feedId: feed.id.toString(),
+              id: item.id.toString(),
+              title: item.title || 'Untitled',
+              link: item.link || '#',
+              description: item.description || '',
+              content: item.content || '',
+              publishedAt: item.publishedAt || new Date().toISOString(),
+              processedContent: item.processedContent,
+              extendedContent: item.extendedContent,
+              pdfs: item.pdfs || [],
+              author: item.author,
+              category: item.category,
+              createdAt: item.createdAt || new Date().toISOString(),
+              feed: {
+                title: feed.title,
+                url: feed.url
+              }
+            });
+          });
+        });
+        
+        setAllItems(allFeedItems);
+        setFilteredItems(allFeedItems);
+        
+      } catch (err) {
+        setError('Failed to fetch data. Please try again later.');
+        console.error('Error fetching data:', err);
+      } finally {
+        setIsLoading(false);
       }
     };
-    
+
     fetchData();
   }, []);
 
   // Handle summary form input changes
   const handleSummaryFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
-    setSummaryForm(prev => ({
+    
+    if (name === 'start' || name === 'end') {
+      setDateRange(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    } else {
+      setSummaryForm(prev => ({
+        ...prev,
+        [name]: type === 'number' ? parseFloat(value) : value
+      }));
+    }
+  };
+
+  // Handle prompt form input changes
+  const handlePromptFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewPrompt(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: name === 'temperature' ? parseFloat(value) : value
     }));
   };
+  
+  // Set up prompt form when editing
+  const handleEditPrompt = (prompt: SystemPrompt) => {
+    setNewPrompt({
+      name: prompt.name,
+      prompt: prompt.prompt,
+      temperature: prompt.temperature
+    });
+    setEditingPrompt(prompt);
+    setShowPromptModal(true);
+  };
+
+  useEffect(() => {
+    if (editingPrompt) {
+      setNewPrompt({
+        name: editingPrompt.name,
+        prompt: editingPrompt.prompt,
+        temperature: editingPrompt.temperature
+      });
+    } else {
+      setNewPrompt({
+        name: '',
+        prompt: '',
+        temperature: 0.7
+      });
+    }
+  }, [editingPrompt]);
 
   // Create a new summary
   const handleCreateSummary = async (e: React.FormEvent) => {
@@ -228,34 +394,49 @@ export default function Home() {
     }
   };
 
-
-
   // Apply filtering whenever feeds or filter changes
   useEffect(() => {
     if (feeds.length > 0) {
       // Create the flattened list of items with feed info
-      const allItems = feeds.flatMap(feed => 
-        feed.items.map(item => ({
-          ...item,
-          feedTitle: feed.title,
-          // Make sure we have a consistent string for comparison
-          feedId: String(feed.id)
-        }))
-      );
+      const allItems: FeedItemWithFeed[] = [];
+      
+      feeds.forEach(feed => {
+        if (!feed.items) return;
+        
+        feed.items.forEach(item => {
+          allItems.push({
+            ...item,
+            feedTitle: feed.title,
+            feedUrl: feed.url || '',
+            feedId: String(feed.id),
+            id: String(item.id),
+            title: item.title || 'Untitled',
+            link: item.link || '#',
+            description: item.description || '',
+            publishedAt: item.publishedAt || new Date().toISOString(),
+            processedContent: item.processedContent,
+            extendedContent: item.extendedContent,
+            pdfs: item.pdfs || [],
+            author: item.author,
+            category: item.category,
+            createdAt: (item as any).createdAt || new Date().toISOString()
+          });
+        });
+      });
       
       // Apply filtering based on selected feed
-      if (feedFilter === 'all') {
-        setFilteredItems(allItems);
-      } else {
+      if (feedFilter && feedFilter !== 'all') {
         const filtered = allItems.filter(item => item.feedId === feedFilter);
         setFilteredItems(filtered);
+      } else {
+        setFilteredItems(allItems);
       }
     }
   }, [feeds, feedFilter]);
 
   const fetchFeeds = async () => {
     setError(null);
-    setLoading(true);
+    setIsLoading(true);
     try {
       const response = await fetch('/api/feeds');
       if (!response.ok) throw new Error('Failed to fetch feeds');
@@ -265,13 +446,13 @@ export default function Home() {
       console.error('Error fetching feeds:', err);
       setError('Failed to fetch feeds');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const fetchSummaries = async () => {
     setError(null);
-    setLoading(true);
+    setIsLoading(true);
     try {
       const timestamp = new Date().getTime();
       const response = await fetch(`/api/summaries?t=${timestamp}`);
@@ -302,7 +483,7 @@ export default function Home() {
       console.error('Error fetching summaries:', err);
       setError(err instanceof Error ? err.message : 'Network or server error');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -324,7 +505,7 @@ export default function Home() {
     e.preventDefault();
     if (!newFeedUrl) return;
     
-    setLoading(true);
+    setIsLoading(true);
     setError(null);
     try {
       const response = await fetch('/api/feeds', {
@@ -345,7 +526,48 @@ export default function Home() {
       console.error('Error adding feed:', err);
       setError(err instanceof Error ? err.message : 'Failed to add feed');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleSavePrompt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newPrompt.name || !newPrompt.prompt) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const url = editingPrompt 
+        ? `/api/system-prompts/${editingPrompt.id}`
+        : '/api/system-prompts';
+      const method = editingPrompt ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPrompt),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to save prompt');
+      }
+      
+      setNewPrompt({
+        name: '',
+        prompt: '',
+        temperature: 0.7
+      });
+      setShowPromptModal(false);
+      setEditingPrompt(null);
+      await fetchSystemPrompts();
+    } catch (err) {
+      console.error('Error saving prompt:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save prompt');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -460,33 +682,38 @@ export default function Home() {
   const handlePromptSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setIsLoading(true);
     try {
-      const endpoint = editingPrompt ? `/api/system-prompts/${editingPrompt.id}` : '/api/system-prompts';
+      const url = editingPrompt 
+        ? `/api/system-prompts/${editingPrompt.id}`
+        : '/api/system-prompts';
+        
       const method = editingPrompt ? 'PUT' : 'POST';
-      const response = await fetch(endpoint, {
+      
+      const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(promptForm),
+        body: JSON.stringify(newPrompt),
       });
       if (!response.ok) {
         throw new Error('Failed to save prompt');
       }
       await fetchSystemPrompts();
       setShowPromptModal(false);
-      setPromptForm({ name: '', prompt: '', temperature: 0.7 });
+      setNewPrompt({ name: '', prompt: '', temperature: 0.7 });
       setEditingPrompt(null);
     } catch (err) {
       console.error('Error saving prompt:', err);
       setError('Failed to save prompt');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const handleGenerateSummary = async () => {
-    if (!selectedPromptId || !dateRange.startDate || !dateRange.endDate) return;
+    if (!selectedPromptId || !dateRange.start || !dateRange.end) return;
     
+    setIsLoading(true);
     setIsGenerating(true);
     setRegeneratingId(null); 
     setSummaryError(null);
@@ -496,8 +723,8 @@ export default function Home() {
         const summaryStartDate = new Date(summary.startDate).toISOString().split('T')[0];
         const summaryEndDate = new Date(summary.endDate).toISOString().split('T')[0];
         return (
-          summaryStartDate === dateRange.startDate && 
-          summaryEndDate === dateRange.endDate && 
+          summaryStartDate === dateRange.start && 
+          summaryEndDate === dateRange.end && 
           summary.systemPromptId === selectedPromptId
         );
       });
@@ -512,8 +739,8 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
+          startDate: dateRange.start,
+          endDate: dateRange.end,
           systemPromptId: selectedPromptId
         }),
       });
@@ -525,8 +752,8 @@ export default function Home() {
       const data = await response.json();
       
       const requestBody = {
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
+        startDate: dateRange.start,
+        endDate: dateRange.end,
         content: data.content,
         systemPromptId: selectedPromptId,
         overwrite: true 
@@ -551,12 +778,13 @@ export default function Home() {
       
       await fetchSummaries();
       
-      setDateRange({startDate: '', endDate: ''});
+      setDateRange({ start: '', end: '' });
       
     } catch (error) {
       console.error('Error generating summary:', error);
       setSummaryError(error instanceof Error ? error.message : 'An unknown error occurred');
     } finally {
+      setIsLoading(false);
       setIsGenerating(false);
       setRegeneratingId(null);
     }
@@ -565,6 +793,7 @@ export default function Home() {
   const handleRegenerateSummary = async (summary: Summary) => {
     if (isGenerating) return;
     
+    setIsLoading(true);
     setIsGenerating(true);
     setRegeneratingId(summary.id);
     setSummaryError(null);
@@ -612,16 +841,20 @@ export default function Home() {
       console.error('Error regenerating summary:', error);
       setSummaryError(error instanceof Error ? error.message : String(error));
     } finally {
+      setIsLoading(false);
       setIsGenerating(false);
       setRegeneratingId(null);
     }
   };
   
   const handleDeleteSummary = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this summary? This action cannot be undone.')) {
+    if (!window.confirm('Are you sure you want to delete this summary? This action cannot be undone.')) {
       return;
     }
 
+    setIsLoading(true);
+    setError(null);
+    
     try {
       const response = await fetch(`/api/summaries/${id}`, {
         method: 'DELETE',
@@ -642,7 +875,7 @@ export default function Home() {
     if (!confirm('Are you sure you want to delete this prompt?')) return;
 
     setError(null);
-    setLoading(true);
+    setIsLoading(true);
     try {
       const response = await fetch(`/api/system-prompts/${id}`, {
         method: 'DELETE',
@@ -671,7 +904,7 @@ export default function Home() {
       console.error('Error deleting prompt:', err);
       setError(err instanceof Error ? err.message : 'Failed to delete prompt');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -934,10 +1167,10 @@ export default function Home() {
                       />
                       <button
                         type="submit"
-                        disabled={!newFeedUrl || loading}
+                        disabled={!newFeedUrl || isLoading}
                         className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 transition-colors duration-200"
                       >
-                        {loading ? (
+                        {isLoading ? (
                           <span className="inline-flex items-center">
                             <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -999,7 +1232,7 @@ export default function Home() {
                               </a>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {new Date(feed.last_fetched).toLocaleString()}
+                              {feed.lastFetched ? new Date(feed.lastFetched).toLocaleString() : 'Never'}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                               <div className="flex space-x-2">
