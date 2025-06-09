@@ -210,8 +210,12 @@ export default function Home() {
         
         // Fetch system prompts
         const promptsResponse = await fetch('/api/system-prompts');
+        if (!promptsResponse.ok) {
+          throw new Error('Failed to fetch system prompts');
+        }
         const promptsData = await promptsResponse.json();
-        setSystemPrompts(promptsData);
+        // Handle both direct array response and object with systemPrompts property
+        setSystemPrompts(Array.isArray(promptsData) ? promptsData : (promptsData.systemPrompts || []));
         
         // Flatten all feed items for the unified view
         const allFeedItems: FeedItem[] = [];
@@ -494,10 +498,12 @@ export default function Home() {
         throw new Error('Failed to fetch system prompts');
       }
       const data = await response.json();
-      setSystemPrompts(data.systemPrompts);
+      // Handle both direct array response and object with systemPrompts property
+      setSystemPrompts(Array.isArray(data) ? data : (data.systemPrompts || []));
     } catch (err) {
       console.error('Error fetching system prompts:', err);
       setError('Failed to fetch system prompts');
+      setSystemPrompts([]); // Ensure it's always an array
     }
   };
 
@@ -1426,9 +1432,62 @@ export default function Home() {
             )}
 
             {activeTab === 'prompts' && (
-              <div>
-                <h2 className="text-xl font-semibold mb-4">System Prompts</h2>
-                {/* Prompts content */}
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">System Prompts</h2>
+                  <button
+                    onClick={() => setShowAddPrompt(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2"
+                  >
+                    <span>+</span>
+                    <span>Add Prompt</span>
+                  </button>
+                </div>
+                
+                {systemPrompts.length === 0 ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <p className="text-gray-500">No system prompts found.</p>
+                    <button
+                      onClick={() => setShowAddPrompt(true)}
+                      className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Create your first prompt
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {systemPrompts.map((prompt) => (
+                      <div key={prompt.id} className="border rounded-lg overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                          <h3 className="font-medium">{prompt.name}</h3>
+                          <div className="flex space-x-2">
+                            <button 
+                              onClick={() => handleEditPrompt(prompt)}
+                              className="text-blue-600 hover:text-blue-800"
+                            >
+                              Edit
+                            </button>
+                            <button 
+                              onClick={() => handleDeletePrompt(prompt.id)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <div className="mb-3">
+                            <span className="text-sm font-medium text-gray-700">Temperature: </span>
+                            <span className="text-sm text-gray-600">{prompt.temperature}</span>
+                          </div>
+                          <div className="bg-gray-50 p-3 rounded-md">
+                            <pre className="text-sm text-gray-800 whitespace-pre-wrap">{prompt.prompt}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
