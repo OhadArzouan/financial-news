@@ -138,12 +138,19 @@ export function PdfManagement() {
               <CardHeader className="bg-muted/50 pb-2">
                 <div className="flex justify-between items-center">
                   <div>
-                    <CardTitle className="text-base">
-                      {pdf.feedItem?.title || 'PDF Document'}
-                    </CardTitle>
-                    <CardDescription className="text-xs truncate">
-                      {pdf.url}
-                    </CardDescription>
+                    <div>
+                      <CardTitle className="text-base">
+                        {pdf.feedItem?.title || 'PDF Document'}
+                      </CardTitle>
+                      <div className="flex flex-col space-y-1">
+                        <CardDescription className="text-xs truncate">
+                          ID: {pdf.id}
+                        </CardDescription>
+                        <CardDescription className="text-xs truncate">
+                          {pdf.url}
+                        </CardDescription>
+                      </div>
+                    </div>
                   </div>
                   
                   <PdfReprocessButton 
