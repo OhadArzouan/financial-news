@@ -29,25 +29,28 @@ export async function POST(
     console.log(`Reprocessing PDF ${id}: ${pdf.url}`);
     console.log(`Current content length: ${pdf.content?.length || 0} characters`);
     
-    // Extract text from the PDF URL
+    console.log('Starting PDF extraction...');
     let newContent = await extractPdfText(pdf.url);
+    console.log(`Extraction result: ${newContent ? 'Success' : 'Failed'}`);
+    console.log(`Content length: ${newContent?.length || 0} characters`);
     
-    // If extraction completely failed, try a direct approach as last resort
+    // Debug: Log first 200 chars if content exists
+    if (newContent) {
+      console.log('Content preview:', newContent.substring(0, 200));
+    }
+    
+    // If extraction completely failed, try a direct fetch as fallback
     if (!newContent) {
+      console.log('\nPrimary extraction failed, trying direct fetch...');
       try {
-        console.log('Attempting direct extraction as last resort...');
         const response = await fetch(pdf.url);
         if (response.ok) {
-          const arrayBuffer = await response.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-          if (buffer && buffer.length > 0) {
-            const pdfParser = require('../../../../../lib/pdf-parser');
-            newContent = await pdfParser.extractTextFromPdfBuffer(buffer);
-            console.log(`Direct extraction result: ${newContent?.length || 0} characters`);
-          }
+          const buffer = await response.arrayBuffer();
+          newContent = await extractPdfText(pdf.url); // Try again with the buffer if needed
+          console.log(`Direct fetch result: ${newContent ? 'Success' : 'Failed'}`);
         }
-      } catch (directError) {
-        console.error('Direct extraction failed:', directError);
+      } catch (error) {
+        console.error('Direct fetch failed:', error);
       }
     }
     

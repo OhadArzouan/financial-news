@@ -1,120 +1,198 @@
-/**
- * Enhanced PDF text extractor module that uses the JavaScript pdf-parser
- * with retry mechanism and improved error handling
- */
-
+import { TextItem } from 'pdfjs-dist/types/src/display/api';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
+import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.entry';
 import fetch from 'node-fetch';
 
-// Import the JavaScript PDF parser
-// Using require because the module doesn't have TypeScript types
-const pdfParser = require('./pdf-parser');
+// Set up the PDF.js worker
+if (typeof window === 'undefined') {
+  // Node.js environment
+  (global as any).pdfjsWorker = pdfjsWorker;
+  (global as any).fetch = fetch;
+} else {
+  // Browser environment
+  (window as any).pdfjsWorker = pdfjsWorker;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+}
 
-/**
- * Configuration for PDF extraction
- */
-const PDF_EXTRACTION_CONFIG = {
-  maxRetries: 3,           // Maximum number of retry attempts
-  timeout: 30000,          // 30 seconds timeout for large PDFs
-  minAcceptableLength: 50 // Minimum acceptable extracted text length
-};
-
-/**
- * Extract text from a PDF URL with retry mechanism
- * 
- * @param url URL of the PDF to extract text from
- * @returns Extracted text or null if extraction failed
- */
-export async function extractPdfText(url: string): Promise<string | null> {
-  let attempts = 0;
+// Simple retry wrapper for async operations
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delayMs = 1000
+): Promise<T> {
   let lastError: Error | null = null;
   
-  while (attempts <= PDF_EXTRACTION_CONFIG.maxRetries) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      attempts++;
-      console.log(`Extracting text from PDF (attempt ${attempts}): ${url}`);
-      
-      // Fetch the PDF with appropriate headers
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 RSS Feed Aggregator/1.0',
-          'Accept': 'application/pdf,*/*'
-        },
-        timeout: PDF_EXTRACTION_CONFIG.timeout
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
-      }
-      
-      // Get the PDF as a buffer
-      const buffer = await response.buffer();
-      if (!buffer || buffer.length === 0) {
-        throw new Error('Received empty PDF buffer');
-      }
-      
-      console.log(`Downloaded PDF: ${buffer.length} bytes`);
-      
-      // Extract text from the PDF buffer
-      console.log('Calling extractTextFromPdfBuffer...');
-      const extractedText = await pdfParser.extractTextFromPdfBuffer(buffer);
-      console.log(`Raw extraction result: ${extractedText?.length || 0} characters`);
-      
-      // For debugging, log a preview of the extracted text
-      if (extractedText) {
-        console.log('Text preview:', extractedText.substring(0, 100) + '...');
-      }
-      
-      // Validate extraction result
-      if (!extractedText || extractedText.length < PDF_EXTRACTION_CONFIG.minAcceptableLength) {
-        throw new Error(`Extraction produced insufficient text (${extractedText?.length || 0} chars)`);
-      }
-      
-      console.log(`Successfully extracted ${extractedText.length} characters from PDF`);
-      return extractedText;
-      
+      return await operation();
     } catch (error) {
       lastError = error as Error;
-      console.error(`Error extracting text from PDF ${url} (attempt ${attempts}):`, error);
+      console.warn(`Attempt ${attempt} failed:`, error);
       
-      // If we've reached max retries, give up
-      if (attempts > PDF_EXTRACTION_CONFIG.maxRetries) {
-        break;
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
       }
-      
-      // Wait before retrying (exponential backoff)
-      const backoffMs = Math.min(1000 * Math.pow(2, attempts - 1), 5000);
-      console.log(`Waiting ${backoffMs}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, backoffMs));
     }
   }
   
-  console.error(`All extraction attempts failed for ${url}:`, lastError);
+  throw lastError || new Error('Operation failed without error');
+}
+
+/**
+ * Extracts text from a PDF URL using pdf.js with retry logic
+ */
+async function extractTextWithPdfJs(url: string): Promise<string | null> {
+  console.log(`[pdf.js] Loading PDF from: ${url}`);
   
-  // For debugging purposes, try a direct extraction without validation
   try {
-    console.log('Attempting direct extraction without validation as last resort...');
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 RSS Feed Aggregator/1.0',
-        'Accept': 'application/pdf,*/*'
-      },
-      timeout: PDF_EXTRACTION_CONFIG.timeout
+    // First, fetch the PDF as array buffer
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    
+    // Load the PDF document directly from the array buffer
+    const loadingTask = pdfjsLib.getDocument({
+      data: arrayBuffer,
+      disableAutoFetch: true,
+      disableStream: true,
+      disableRange: true,
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+      cMapPacked: true,
     });
     
-    if (response.ok) {
-      const buffer = await response.buffer();
-      if (buffer && buffer.length > 0) {
-        const directText = await pdfParser.extractTextFromPdfBuffer(buffer);
-        console.log(`Direct extraction result: ${directText?.length || 0} characters`);
-        if (directText && directText.length > 0) {
-          console.log('Returning direct extraction result despite validation failure');
-          return directText;
-        }
-      }
+    const pdf = await loadingTask.promise;
+    console.log(`[pdf.js] PDF loaded, pages: ${pdf.numPages}`);
+    
+    let textContent = '';
+    const maxPages = Math.min(pdf.numPages, 10); // Limit to first 10 pages for performance
+    
+    // Extract text from each page
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item) => {
+          // Check if the item has the 'str' property before accessing it
+          const textItem = item as TextItem;
+          return 'str' in textItem ? textItem.str : '';
+        })
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      textContent += pageText + '\n\n';
     }
-  } catch (directError) {
-    console.error('Direct extraction also failed:', directError);
+    
+    // Clean up
+    await Promise.all(
+      Array.from({ length: maxPages }, (_, i) => i + 1)
+        .map(pageNum => pdf.getPage(pageNum).then(page => page.cleanup()))
+    );
+    
+    await pdf.cleanup();
+    await pdf.destroy();
+    
+    console.log(`[pdf.js] Extracted ${textContent.length} characters`);
+    return textContent.trim() || null;
+    
+  } catch (error) {
+    console.error('[pdf.js] Error extracting text:', error);
+    return null;
   }
+}
+
+/**
+ * Extracts text from a PDF buffer using pdf-parse (fallback)
+ */
+async function extractTextWithPdfParse(buffer: Buffer): Promise<string | null> {
+  try {
+    // Dynamically import pdf-parse to avoid loading it unless needed
+    const { default: pdfParse } = await import('pdf-parse');
+    const data = await pdfParse(buffer);
+    return data.text.trim() || null;
+  } catch (error) {
+    console.error('[pdf-parse] Error extracting text:', error);
+    return null;
+  }
+}
+
+/**
+ * Extracts text from a PDF URL using multiple methods with fallbacks
+ */
+export async function extractPdfText(url: string): Promise<string | null> {
+  console.log(`\n=== Starting PDF extraction from: ${url} ===`);
   
-  return null;
+  try {
+    // First, fetch the PDF as array buffer
+    console.log('\n[1/3] Fetching PDF content...');
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Method 1: Try with pdf-parse first (more reliable for some PDFs)
+    console.log('\n[2/3] Trying pdf-parse extraction...');
+    const pdfParseText = await withRetry(() => 
+      extractTextWithPdfParse(buffer)
+    );
+    
+    if (pdfParseText && pdfParseText.length > 100) { // Ensure we got meaningful content
+      console.log('pdf-parse extraction successful');
+      return pdfParseText;
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      // Try to extract any text from the buffer
+      const rawText = buffer.toString('utf8');
+      if (rawText.length > 100) {
+        console.log(`Extracted ${rawText.length} characters using direct text extraction`);
+        return rawText;
+      }
+      
+      console.warn('All extraction methods failed or returned insufficient content');
+      return null;
+      
+    } catch (error) {
+      console.error('Error in direct text extraction:', error);
+      return null;
+    }
+    
+  } catch (error) {
+    console.error(`Error processing PDF (${url}):`, error);
+    return null;
+  } finally {
+    console.log('=== PDF extraction completed ===\n');
+  }
+}
+
+/**
+ * Extracts text from a PDF buffer (for direct buffer input)
+ */
+export async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string | null> {
+  try {
+    // First try pdf-parse
+    const pdfParse = (await import('pdf-parse')).default;
+    const data = await pdfParse(buffer);
+    const text = data.text.trim();
+    
+    if (text && text.length > 100) {
+      return text;
+    }
+    
+    // Fallback to raw text extraction
+    const rawText = buffer.toString('utf8');
+    return rawText.length > text.length ? rawText : text;
+  } catch (error) {
+    console.error('Error extracting text from buffer:', error);
+    return buffer.toString('utf8');
+  }
 }
