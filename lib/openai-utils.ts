@@ -19,7 +19,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert content analyst and summarizer.
 Be concise but informative. Use bullet points for clarity.`;
 
 export async function generateWeeklySummary(startDate: Date, endDate: Date, systemPromptId?: string): Promise<string> {
-  // Fetch last week's items
+  // Fetch last week's items with their associated PDFs
   const items = await prisma.feedItem.findMany({
     where: {
       publishedAt: {
@@ -32,7 +32,8 @@ export async function generateWeeklySummary(startDate: Date, endDate: Date, syst
         select: {
           title: true
         }
-      }
+      },
+      pdfs: true // Include PDFs associated with feed items
     },
     orderBy: {
       publishedAt: 'desc'
@@ -43,13 +44,28 @@ export async function generateWeeklySummary(startDate: Date, endDate: Date, syst
     return "No feed items found for the specified date range.";
   }
 
-  // Prepare content for OpenAI
-  const content = items.map(item => ({
-    title: item.title,
-    source: item.feed.title,
-    date: item.publishedAt,
-    content: item.processedContent || item.description || 'No content available'
-  }));
+  // Prepare content for OpenAI - include extended content and PDFs
+  const content = items.map(item => {
+    // Combine all PDF content if available
+    const pdfContentArray = item.pdfs
+      ?.filter(pdf => pdf.content)
+      .map(pdf => pdf.content);
+      
+    const pdfContent = pdfContentArray?.length 
+      ? `\n\nPDF CONTENT:\n${pdfContentArray.join('\n---\n')}` 
+      : '';
+      
+    return {
+      title: item.title,
+      source: item.feed.title,
+      date: item.publishedAt,
+      content: [
+        item.processedContent || item.description || 'No content available',
+        item.extendedContent || '',
+        pdfContent
+      ].filter(Boolean).join('\n\n')
+    };
+  });
 
   // Create the prompt
   const prompt = `Please analyze the following ${items.length} articles from ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}:\n\n` +
