@@ -145,26 +145,29 @@ export async function extractPdfText(url: string): Promise<string | null> {
     if (pdfParseText && pdfParseText.length > 100) { // Ensure we got meaningful content
       console.log('pdf-parse extraction successful');
       return pdfParseText;
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      }
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      // Try to extract any text from the buffer
-      const rawText = buffer.toString('utf8');
-      if (rawText.length > 100) {
-        console.log(`Extracted ${rawText.length} characters using direct text extraction`);
-        return rawText;
-      }
-      
-      console.warn('All extraction methods failed or returned insufficient content');
-      return null;
-      
-    } catch (error) {
-      console.error('Error in direct text extraction:', error);
-      return null;
     }
+    
+    // Method 2: Try with pdf.js (handles more complex PDFs)
+    console.log('\n[3/3] Trying pdf.js extraction...');
+    const pdfJsText = await withRetry(() => 
+      extractTextWithPdfJs(url)
+    );
+    
+    if (pdfJsText && pdfJsText.length > 100) {
+      console.log('pdf.js extraction successful');
+      return pdfJsText;
+    }
+    
+    // Last resort: Try direct text extraction
+    console.log('\n[Fallback] Trying direct text extraction...');
+    const rawText = buffer.toString('utf8');
+    if (rawText.length > 100) {
+      console.log(`Extracted ${rawText.length} characters using direct text extraction`);
+      return rawText;
+    }
+    
+    console.warn('All extraction methods failed or returned insufficient content');
+    return null;
     
   } catch (error) {
     console.error(`Error processing PDF (${url}):`, error);

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { extractPdfText } from '@/lib/pdf-extractor';
+import { extractPdfText } from '@/lib/pdf-extractor-fixed';
 
 // Define the type for the PDF metadata
 interface PdfMetadata {
@@ -46,53 +46,40 @@ export async function POST(request: Request) {
     let extractionError: Error | null = null;
     
     try {
-      // Try with the full extraction logic
+      // Use the robust PDF extractor with built-in gibberish detection and multiple fallbacks
       extractedText = await extractPdfText(pdf.url);
       console.log(`Extraction completed. Got ${extractedText?.length || 0} characters`);
       
       if (!extractedText) {
         console.error('No content was extracted from the PDF');
         extractionError = new Error('No content was extracted from the PDF');
-      }
-    } catch (error: unknown) {
-      console.error('Error during PDF extraction:', error);
-      extractionError = error instanceof Error ? error : new Error(String(error));
-    }
-    
-    // If extraction failed, try a direct fetch as a fallback
-    if (!extractedText) {
-      console.log('Trying fallback extraction method...');
-      try {
-        const response = await fetch(pdf.url);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const buffer = await response.arrayBuffer();
-        const text = new TextDecoder('utf-8').decode(buffer);
         
-        // Simple check if this looks like text content
-        if (text.length > 100) {
-          extractedText = text;
-          console.log(`Fallback extraction successful. Got ${extractedText.length} characters`);
-        } else {
-          throw new Error('Fallback extraction resulted in too little content');
-        }
-      } catch (error: unknown) {
-        const fallbackError = error instanceof Error ? error : new Error(String(error));
-        console.error('Fallback extraction failed:', fallbackError);
         return NextResponse.json(
           { 
             error: 'Failed to extract text from PDF',
             details: {
-              mainError: extractionError?.message || 'No content extracted',
-              fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+              mainError: 'No content extracted after trying all extraction methods',
               url: pdf.url,
-              contentLength: extractedText?.length || 0
+              contentLength: 0
             }
           },
           { status: 500 }
         );
       }
+    } catch (error: unknown) {
+      console.error('Error during PDF extraction:', error);
+      extractionError = error instanceof Error ? error : new Error(String(error));
+      
+      return NextResponse.json(
+        { 
+          error: 'Error during PDF extraction',
+          details: {
+            mainError: extractionError.message,
+            url: pdf.url
+          }
+        },
+        { status: 500 }
+      );
     }
 
     console.log(`\nSuccessfully extracted ${extractedText.length} characters`);
@@ -109,7 +96,7 @@ export async function POST(request: Request) {
       metadata: {
         ...pdfMetadata,
         lastExtraction: new Date().toISOString(),
-        extractionMethod: 'enhanced-pdf-extractor',
+        extractionMethod: 'robust-pdf-extractor',
         contentLength: extractedText.length
       }
     };
